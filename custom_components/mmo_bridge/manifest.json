@@ -1,0 +1,10 @@
+
+{
+  "domain": "mmo_bridge",
+  "name": "MMO Bridge",
+  "version": "0.1.0",
+  "documentation": "https://xevian.net/mmo-bridge",
+  "dependencies": [],
+  "codeowners": ["@xevian"],
+  "requirements": []
+}
