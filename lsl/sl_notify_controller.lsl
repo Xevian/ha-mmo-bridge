@@ -19,8 +19,15 @@ float poll_interval = 60.0;
 key regRequestKey;
 
 string buildOnlineJson(list names) {
+    // Always include adapter_url so HA can self-heal after a restart
     string arr = llList2Json(JSON_ARRAY, names);
-    return llList2Json(JSON_OBJECT, ["world", "secondlife", "online", arr]);
+    string caps = llList2Json(JSON_ARRAY, ["presence", "message"]);
+    return llList2Json(JSON_OBJECT, [
+        "world",       "secondlife",
+        "adapter_url", my_url,
+        "capabilities", caps,
+        "online",      arr
+    ]);
 }
 
 doRequestUrl() {
@@ -45,7 +52,8 @@ sendPresenceNow() {
     pending_checks = 0;
 
     integer len = llGetListLength(registered);
-    for (integer i = 0; i < len; i += 2) {
+    integer i;
+    for (i = 0; i < len; i += 2) {
         key av = (key)llList2String(registered, i);
         string nm = llList2String(registered, i + 1);
         key req = llRequestAgentData(av, DATA_ONLINE);
@@ -108,7 +116,8 @@ default {
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
             key target = NULL_KEY;
             integer len = llGetListLength(registered);
-            for (integer i = 0; i < len; i += 2) {
+            integer i;
+            for (i = 0; i < len; i += 2) {
                 if (llList2String(registered, i + 1) == toName) {
                     target = (key)llList2String(registered, i);
                     jump found;
