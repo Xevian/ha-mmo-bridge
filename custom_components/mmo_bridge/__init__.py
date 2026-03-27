@@ -2,7 +2,7 @@
 from homeassistant.components.webhook import async_register
 from homeassistant.components import persistent_notification
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.network import async_get_external_url, async_get_internal_url, NoURLAvailableError
+from homeassistant.helpers.network import get_url, NoURLAvailableError
 from aiohttp import web
 import logging
 import secrets
@@ -58,14 +58,9 @@ async def async_setup(hass, config):
     path = f"/api/webhook/mmo_bridge?token={token}"
     base = None
     try:
-        base = await async_get_external_url(hass)
+        base = get_url(hass, prefer_external=True)
     except NoURLAvailableError:
         pass
-    if base is None:
-        try:
-            base = await async_get_internal_url(hass)
-        except NoURLAvailableError:
-            pass
     full_url = f"{base}{path}" if base else path
 
     message = (
