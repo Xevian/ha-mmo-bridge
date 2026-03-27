@@ -45,7 +45,8 @@ sendPresenceNow() {
     pending_checks = 0;
 
     integer len = llGetListLength(registered);
-    for (integer i = 0; i < len; i += 2) {
+    integer i;
+    for (i = 0; i < len; i += 2) {
         key av = (key)llList2String(registered, i);
         string nm = llList2String(registered, i + 1);
         key req = llRequestAgentData(av, DATA_ONLINE);
@@ -108,7 +109,8 @@ default {
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
             key target = NULL_KEY;
             integer len = llGetListLength(registered);
-            for (integer i = 0; i < len; i += 2) {
+            integer i;
+            for (i = 0; i < len; i += 2) {
                 if (llList2String(registered, i + 1) == toName) {
                     target = (key)llList2String(registered, i);
                     jump found;
