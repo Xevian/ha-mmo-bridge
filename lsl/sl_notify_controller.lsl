@@ -22,8 +22,26 @@ integer is_ready             = FALSE;
 float   url_retry_s          = 2.0;
 float   poll_interval        = 60.0;
 key     regRequestKey;
+integer region_restarted     = FALSE; // flagged by CHANGED_REGION_START
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+string buildWorldData() {
+    vector pos          = llGetPos();
+    list   parcel       = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
+    list   parcel_agents = llGetAgentList(AGENT_LIST_PARCEL, []);
+    list   region_agents = llGetAgentList(AGENT_LIST_REGION, []);
+    return llList2Json(JSON_OBJECT, [
+        "region",           llGetRegionName(),
+        "parcel",           llList2String(parcel, 0),
+        "sim_channel",      llGetEnv("sim_channel"),
+        "sim_version",      llGetEnv("sim_version"),
+        "agents_on_parcel", llGetListLength(parcel_agents),
+        "agents_in_region", llGetListLength(region_agents),
+        "time_dilation",    (string)llGetRegionTimeDilation(),
+        "region_fps",       (string)llGetRegionFPS()
+    ]);
+}
 
 saveRegistered() {
     llLinksetDataWrite(LD_REGISTERED, llList2Json(JSON_ARRAY, registered));
@@ -43,12 +61,18 @@ registerWithHA() {
 string buildOnlineJson(list names) {
     string arr  = llList2Json(JSON_ARRAY, names);
     string caps = llList2Json(JSON_ARRAY, ["presence", "message"]);
-    return llList2Json(JSON_OBJECT, [
+    list fields = [
         "world",        "secondlife",
         "adapter_url",  my_url,
         "capabilities", caps,
+        "world_data",   buildWorldData(),
         "online",       arr
-    ]);
+    ];
+    if (region_restarted) {
+        fields += ["region_restart", JSON_TRUE];
+        region_restarted = FALSE;
+    }
+    return llList2Json(JSON_OBJECT, fields);
 }
 
 doRequestUrl() {
@@ -282,6 +306,7 @@ default {
             llResetScript();
         }
         if (c & (CHANGED_REGION | CHANGED_REGION_START | CHANGED_TELEPORT)) {
+            if (c & CHANGED_REGION_START) region_restarted = TRUE;
             is_ready             = FALSE;
             url_request_inflight = FALSE;
             if (my_url != "") {

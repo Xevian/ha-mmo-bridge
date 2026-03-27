@@ -27,6 +27,7 @@ class MMOBridgeSensor(Entity):
         self._hass = hass
         self._world = world
         self._online = []
+        self._world_data = {}
 
     @property
     def name(self):
@@ -50,10 +51,13 @@ class MMOBridgeSensor(Entity):
 
     @property
     def extra_state_attributes(self):
-        return {
+        attrs = {
             "world": self._world,
             "online": self._online,
         }
+        # Merge in whatever world_data the adapter sent — generic across all worlds
+        attrs.update(self._world_data)
+        return attrs
 
     @property
     def should_poll(self):
@@ -70,9 +74,7 @@ class MMOBridgeSensor(Entity):
     def _handle_presence_update(self, world):
         if world != self._world:
             return
-        self._online = (
-            self.hass.data[DOMAIN]["registries"]
-            .get(self._world, {})
-            .get("online", [])
-        )
+        registry = self.hass.data[DOMAIN]["registries"].get(self._world, {})
+        self._online = registry.get("online", [])
+        self._world_data = registry.get("world_data", {})
         self.async_write_ha_state()
