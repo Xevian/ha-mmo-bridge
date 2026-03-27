@@ -74,6 +74,19 @@ async def async_setup(hass, config):
                 hass.bus.async_fire(f"{DOMAIN}_avatar_offline", {"world": world, "avatar": avatar})
 
             hass.data[DOMAIN]["registries"][world]["online"] = data["online"]
+
+            # Store any world-specific metadata the adapter sends
+            if "world_data" in data:
+                hass.data[DOMAIN]["registries"][world]["world_data"] = data["world_data"]
+
+            # Fire a region restart event if the adapter flagged one
+            if data.get("region_restart"):
+                _LOGGER.info("Region restart detected for world '%s'", world)
+                hass.bus.async_fire(f"{DOMAIN}_region_restart", {
+                    "world": world,
+                    "world_data": data.get("world_data", {}),
+                })
+
             async_dispatcher_send(hass, SIGNAL_PRESENCE_UPDATED, world)
 
         return web.Response(text="OK")
@@ -117,14 +130,16 @@ async def async_setup(hass, config):
 
 
 def _ensure_sensor(hass, world):
-    """Create a sensor entity for a world the first time its adapter registers."""
-    from .sensor import MMOBridgeSensor
+    """Create all sensor entities for a world the first time its adapter registers."""
+    from .sensor import MMOBridgeSensor, MMOBridgeWorldDataSensor, WORLD_DATA_SENSORS
     existing = hass.data[DOMAIN].setdefault("sensor_entities", {})
     if world in existing:
         return
     add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
     if add_entities is None:
         return
-    sensor = MMOBridgeSensor(hass, world)
-    existing[world] = sensor
-    add_entities([sensor])
+    entities = [MMOBridgeSensor(hass, world)]
+    for key, name_suffix, unit, icon, cast_fn in WORLD_DATA_SENSORS:
+        entities.append(MMOBridgeWorldDataSensor(hass, world, key, name_suffix, unit, icon, cast_fn))
+    existing[world] = entities
+    add_entities(entities)
