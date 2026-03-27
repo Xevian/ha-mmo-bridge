@@ -4,7 +4,7 @@ string LD_HA_URL     = "mmo_ha_url";
 string LD_REGISTERED = "mmo_registered";
 
 // ── Configuration ────────────────────────────────────────────────────────────
-string  ha_url       = "http://url-token"; // Overridden by linkset data if set
+string  ha_url; // Set via: /5 seturl <url>
 string  my_url;
 list    registered;                        // [key, name, key, name, ...]
 integer CMD_CHANNEL  = 5;                  // Owner chat: /5 <command>
@@ -30,7 +30,7 @@ saveRegistered() {
 }
 
 registerWithHA() {
-    if (!is_ready) return;
+    if (!is_ready || ha_url == "") return;
     string payload = llList2Json(JSON_OBJECT, [
         "world",        "secondlife",
         "adapter_url",  my_url,
@@ -68,6 +68,7 @@ scheduleUrlRetry() {
 }
 
 sendPresenceNow() {
+    if (ha_url == "") return;
     online_names       = [];
     request_id_to_name = [];
     pending_checks     = 0;
@@ -106,14 +107,12 @@ default {
         url_retry_s          = 2.0;
         regRequestKey        = NULL_KEY;
 
-        // Restore HA URL from linkset data (overrides compiled-in default)
-        string stored_url = llLinksetDataRead(LD_HA_URL);
-        if (stored_url != "") {
-            ha_url = stored_url;
+        // Load HA URL from linkset data
+        ha_url = llLinksetDataRead(LD_HA_URL);
+        if (ha_url != "") {
             llOwnerSay("MMO Bridge: loaded HA URL from linkset data.");
         } else {
-            llOwnerSay("MMO Bridge: no URL in linkset data — using compiled default.");
-            llOwnerSay("           Use /5 seturl <url> to configure.");
+            llOwnerSay("MMO Bridge: no HA URL configured. Use /5 seturl <url> to set it.");
         }
 
         // Restore registered avatars from linkset data
