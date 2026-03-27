@@ -39,7 +39,8 @@ string buildWorldData() {
         "agents_on_parcel", llGetListLength(parcel_agents),
         "agents_in_region", llGetListLength(region_agents),
         "time_dilation",    (string)llGetRegionTimeDilation(),
-        "region_fps",       (string)llGetRegionFPS()
+        "region_fps",       (string)llGetRegionFPS(),
+        "sim_start_time",   llGetEnv("sim_start_time")
     ]);
 }
 
