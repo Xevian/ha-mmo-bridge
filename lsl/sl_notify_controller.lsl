@@ -149,7 +149,10 @@ default {
         } else if (msg == "status") {
             llOwnerSay("── MMO Bridge status ──");
             llOwnerSay("HA URL    : " + ha_url);
-            llOwnerSay("Script URL: " + (is_ready ? my_url : "(not ready)"));
+            if (is_ready)
+                llOwnerSay("Script URL: " + my_url);
+            else
+                llOwnerSay("Script URL: (not ready)");
             llOwnerSay("Registered: " + (string)(llGetListLength(registered) / 2) + " avatar(s)");
 
         } else if (msg == "list") {
