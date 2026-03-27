@@ -20,14 +20,21 @@ async def async_setup(hass, config):
     hass.data[DOMAIN]["adapters"] = {}     # world -> {"url": str, "capabilities": [...]}
     hass.data[DOMAIN]["async_add_sensor_entities"] = None  # set by sensor platform
 
-    # Load or generate token and persist it
+    # Load persisted token and adapter URLs
     store = Store(hass, 1, DOMAIN)
     stored = await store.async_load() or {}
     token = stored.get("token")
     if not token:
         token = secrets.token_urlsafe(24)
-        await store.async_save({"token": token})
     hass.data[DOMAIN]["token"] = token
+
+    # Restore adapter URLs persisted from the previous run
+    for world, adapter in stored.get("adapters", {}).items():
+        hass.data[DOMAIN]["adapters"][world] = adapter
+        hass.data[DOMAIN]["registries"][world] = {"online": []}
+        _LOGGER.info("Restored adapter for world '%s' from storage", world)
+
+    await store.async_save({"token": token, "adapters": hass.data[DOMAIN]["adapters"]})
 
     async def handle_notify_webhook(hass_arg, webhook_id, request):
         data = await request.json()
@@ -45,10 +52,13 @@ async def async_setup(hass, config):
             hass.data[DOMAIN]["adapters"][world] = {"url": url, "capabilities": capabilities}
             if world not in hass.data[DOMAIN]["registries"]:
                 hass.data[DOMAIN]["registries"][world] = {"online": []}
+            # Persist so the adapter URL survives HA restarts
+            await store.async_save({"token": token, "adapters": hass.data[DOMAIN]["adapters"]})
+            _LOGGER.info("Adapter registered for world '%s': %s", world, url)
             # Create a sensor for this world if the platform is ready
             _ensure_sensor(hass, world)
 
-        elif "online" in data:
+        if "online" in data:
             if world not in hass.data[DOMAIN]["registries"]:
                 hass.data[DOMAIN]["registries"][world] = {"online": []}
 

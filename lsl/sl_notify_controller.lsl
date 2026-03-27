@@ -19,8 +19,15 @@ float poll_interval = 60.0;
 key regRequestKey;
 
 string buildOnlineJson(list names) {
+    // Always include adapter_url so HA can self-heal after a restart
     string arr = llList2Json(JSON_ARRAY, names);
-    return llList2Json(JSON_OBJECT, ["world", "secondlife", "online", arr]);
+    string caps = llList2Json(JSON_ARRAY, ["presence", "message"]);
+    return llList2Json(JSON_OBJECT, [
+        "world",       "secondlife",
+        "adapter_url", my_url,
+        "capabilities", caps,
+        "online",      arr
+    ]);
 }
 
 doRequestUrl() {
