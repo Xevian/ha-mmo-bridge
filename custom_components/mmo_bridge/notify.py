@@ -1,39 +1,41 @@
 
 from homeassistant.components.notify import BaseNotificationService
-import requests
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import aiohttp
 import logging
+
+from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-def get_service(hass, config, discovery_info=None):
+async def async_get_service(hass, config, discovery_info=None):
     return SLNotificationService(hass)
 
 class SLNotificationService(BaseNotificationService):
     def __init__(self, hass):
         self.hass = hass
 
-    def send_message(self, message="", **kwargs):
+    async def async_send_message(self, message="", **kwargs):
         targets = kwargs.get("target", [])
         if isinstance(targets, str):
             targets = [targets]
-        # Support multi-world routing: targets can be strings like "world:name" or just "name" (defaults to secondlife)
-        adapters = self.hass.data.get("adapters", {})
-        registries = self.hass.data.get("registries", {})
+
+        bridge = self.hass.data.get(DOMAIN, {})
+        adapters = bridge.get("adapters", {})
+        registries = bridge.get("registries", {})
 
         if not adapters:
             _LOGGER.warning("No adapter endpoints registered.")
             return
 
+        session = async_get_clientsession(self.hass)
+
         for raw in targets:
             string_world = "secondlife"
             string_name = raw
-            # Split on first ':' if provided
-            try:
-                if ":" in raw:
-                    parts = raw.split(":", 1)
-                    string_world, string_name = parts[0], parts[1]
-            except Exception:  # defensive
-                pass
+            if ":" in raw:
+                parts = raw.split(":", 1)
+                string_world, string_name = parts[0], parts[1]
 
             registry = registries.get(string_world, {"online": []})
             online = registry.get("online", [])
@@ -45,7 +47,6 @@ class SLNotificationService(BaseNotificationService):
                 _LOGGER.warning("No adapter URL for world '%s'", string_world)
                 continue
 
-            # Require capability to message if declared
             if caps and "message" not in caps:
                 _LOGGER.warning("Adapter for '%s' does not support messaging", string_world)
                 continue
@@ -53,6 +54,7 @@ class SLNotificationService(BaseNotificationService):
             if string_name in online:
                 payload = {"to": string_name, "message": message}
                 try:
-                    requests.post(url, json=payload, timeout=5)
+                    timeout = aiohttp.ClientTimeout(total=5)
+                    await session.post(url, json=payload, timeout=timeout)
                 except Exception as e:
                     _LOGGER.error("Failed to send to %s:%s: %s", string_world, string_name, e)
