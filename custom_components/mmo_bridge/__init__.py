@@ -130,14 +130,16 @@ async def async_setup(hass, config):
 
 
 def _ensure_sensor(hass, world):
-    """Create a sensor entity for a world the first time its adapter registers."""
-    from .sensor import MMOBridgeSensor
+    """Create all sensor entities for a world the first time its adapter registers."""
+    from .sensor import MMOBridgeSensor, MMOBridgeWorldDataSensor, WORLD_DATA_SENSORS
     existing = hass.data[DOMAIN].setdefault("sensor_entities", {})
     if world in existing:
         return
     add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
     if add_entities is None:
         return
-    sensor = MMOBridgeSensor(hass, world)
-    existing[world] = sensor
-    add_entities([sensor])
+    entities = [MMOBridgeSensor(hass, world)]
+    for key, name_suffix, unit, icon, cast_fn in WORLD_DATA_SENSORS:
+        entities.append(MMOBridgeWorldDataSensor(hass, world, key, name_suffix, unit, icon, cast_fn))
+    existing[world] = entities
+    add_entities(entities)
