@@ -1,7 +1,8 @@
 
 // ── Linkset data keys ───────────────────────────────────────────────────────
-string LD_HA_URL     = "mmo_ha_url";
-string LD_REGISTERED = "mmo_registered";
+string LD_HA_URL       = "mmo_ha_url";
+string LD_REGISTERED   = "mmo_registered";
+string LD_POLL_INTERVAL = "mmo_poll_interval";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 string  ha_url; // Set via: /5 seturl <url>
@@ -116,7 +117,8 @@ sendPresenceNow() {
 
 showHelp() {
     llOwnerSay("MMO Bridge — chat commands on channel " + (string)CMD_CHANNEL + ":");
-    llOwnerSay("  seturl <url>   — save HA webhook URL to linkset data and re-register");
+    llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
+    llOwnerSay("  setpoll <sec>  — set presence poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show HA URL, script URL, and registered avatar count");
     llOwnerSay("  list           — list all registered avatars");
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
@@ -140,6 +142,10 @@ default {
         } else {
             llOwnerSay("MMO Bridge: no HA URL configured. Use /5 seturl <url> to set it.");
         }
+
+        // Load poll interval from linkset data
+        string stored_poll = llLinksetDataRead(LD_POLL_INTERVAL);
+        if (stored_poll != "") poll_interval = (float)stored_poll;
 
         // Restore registered avatars from linkset data
         string stored_reg = llLinksetDataRead(LD_REGISTERED);
@@ -172,6 +178,17 @@ default {
             llOwnerSay("MMO Bridge: HA URL saved.");
             registerWithHA();
 
+        } else if (llGetSubString(msg, 0, 7) == "setpoll ") {
+            float secs = (float)llStringTrim(llGetSubString(msg, 8, -1), STRING_TRIM);
+            if (secs < 10.0) {
+                llOwnerSay("Poll interval must be at least 10 seconds.");
+            } else {
+                poll_interval = secs;
+                llLinksetDataWrite(LD_POLL_INTERVAL, (string)poll_interval);
+                llSetTimerEvent(poll_interval);
+                llOwnerSay("Poll interval set to " + (string)((integer)poll_interval) + "s.");
+            }
+
         } else if (msg == "status") {
             llOwnerSay("── MMO Bridge status ──");
             llOwnerSay("HA URL    : " + ha_url);
@@ -179,6 +196,7 @@ default {
                 llOwnerSay("Script URL: " + my_url);
             else
                 llOwnerSay("Script URL: (not ready)");
+            llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
             integer reg_count = llGetListLength(registered) / 2;
             llOwnerSay("Registered: " + (string)reg_count + " avatar(s)");
             integer si;
