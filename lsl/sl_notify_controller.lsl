@@ -179,7 +179,12 @@ default {
                 llOwnerSay("Script URL: " + my_url);
             else
                 llOwnerSay("Script URL: (not ready)");
-            llOwnerSay("Registered: " + (string)(llGetListLength(registered) / 2) + " avatar(s)");
+            integer reg_count = llGetListLength(registered) / 2;
+            llOwnerSay("Registered: " + (string)reg_count + " avatar(s)");
+            integer si;
+            for (si = 0; si < llGetListLength(registered); si += 2) {
+                llOwnerSay("  - " + llList2String(registered, si + 1));
+            }
 
         } else if (msg == "list") {
             integer len = llGetListLength(registered);
@@ -289,8 +294,9 @@ default {
     touch_start(integer n) {
         key    agent = llDetectedKey(0);
         string name  = llDetectedName(0);
-        if (llListFindList(registered, [agent]) == -1) {
-            registered += [agent, name];
+        // Store and search keys as strings for consistency with linkset data restore
+        if (llListFindList(registered, [(string)agent]) == -1) {
+            registered += [(string)agent, name];
             saveRegistered();
             llOwnerSay(name + " registered (" + (string)(llGetListLength(registered) / 2) + " total).");
         } else {
