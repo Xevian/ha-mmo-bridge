@@ -116,11 +116,12 @@ sendPresenceNow() {
 
 showHelp() {
     llOwnerSay("MMO Bridge — chat commands on channel " + (string)CMD_CHANNEL + ":");
-    llOwnerSay("  seturl <url>  — save HA webhook URL to linkset data and re-register");
-    llOwnerSay("  status        — show HA URL, script URL, and registered avatar count");
-    llOwnerSay("  list          — list all registered avatars");
-    llOwnerSay("  clearusers    — remove all registered avatars");
-    llOwnerSay("  help          — show this message");
+    llOwnerSay("  seturl <url>   — save HA webhook URL to linkset data and re-register");
+    llOwnerSay("  status         — show HA URL, script URL, and registered avatar count");
+    llOwnerSay("  list           — list all registered avatars");
+    llOwnerSay("  remove <name>  — remove a specific avatar by name");
+    llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  help           — show this message");
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -190,6 +191,26 @@ default {
             for (i = 0; i < len; i += 2) {
                 llOwnerSay("  " + llList2String(registered, i + 1)
                     + "  (" + llList2String(registered, i) + ")");
+            }
+
+        } else if (llGetSubString(msg, 0, 6) == "remove ") {
+            string target_name = llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM);
+            integer found = -1;
+            integer len = llGetListLength(registered);
+            integer i;
+            for (i = 0; i < len; i += 2) {
+                if (llList2String(registered, i + 1) == target_name) {
+                    found = i;
+                    jump removedone;
+                }
+            }
+            @removedone;
+            if (found != -1) {
+                registered = llDeleteSubList(registered, found, found + 1);
+                saveRegistered();
+                llOwnerSay(target_name + " removed (" + (string)(llGetListLength(registered) / 2) + " remaining).");
+            } else {
+                llOwnerSay("No avatar named '" + target_name + "' is registered.");
             }
 
         } else if (msg == "clearusers") {
@@ -268,15 +289,12 @@ default {
     touch_start(integer n) {
         key    agent = llDetectedKey(0);
         string name  = llDetectedName(0);
-        integer idx  = llListFindList(registered, [agent]);
-        if (idx == -1) {
+        if (llListFindList(registered, [agent]) == -1) {
             registered += [agent, name];
             saveRegistered();
             llOwnerSay(name + " registered (" + (string)(llGetListLength(registered) / 2) + " total).");
         } else {
-            registered = llDeleteSubList(registered, idx, idx + 1);
-            saveRegistered();
-            llOwnerSay(name + " deregistered (" + (string)(llGetListLength(registered) / 2) + " remaining).");
+            llInstantMessage(agent, "You are already registered. Ask the owner to remove you if needed.");
         }
     }
 
