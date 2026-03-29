@@ -389,6 +389,13 @@ default {
     touch_start(integer n) {
         key    agent = llDetectedKey(0);
         string name  = llDetectedName(0);
+
+        // Only allow group members with the group active (set the object's group accordingly)
+        if (!llSameGroup(agent)) {
+            llInstantMessage(agent, "Sorry, registration is restricted to group members. Activate the group tag and try again.");
+            return;
+        }
+
         if (llListFindList(registered, [(string)agent]) == -1) {
             registered += [(string)agent, name];
             saveRegistered();
