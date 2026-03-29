@@ -1,6 +1,7 @@
 
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
 import logging
 
@@ -22,6 +23,19 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     """Store the async_add_entities callback so __init__ can create sensors dynamically."""
     hass.data[DOMAIN]["async_add_sensor_entities"] = async_add_entities
     hass.data[DOMAIN].setdefault("sensor_entities", {})
+
+    # Remove orphaned v0.1.x entity registry entries that used the old
+    # unique_id format (no node_id component): mmo_bridge_<world>_<key>
+    # The new format is mmo_bridge_<world>_<node_id>_<key>, so the old ones
+    # linger as "unknown" and cause _2 suffix collisions on new entities.
+    registry = er.async_get(hass)
+    for world in hass.data[DOMAIN]["nodes"]:
+        for sensor_key, _, _, _, _ in WORLD_DATA_SENSORS:
+            old_unique_id = f"{DOMAIN}_{world}_{sensor_key}"
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, old_unique_id)
+            if entity_id:
+                registry.async_remove(entity_id)
+                _LOGGER.info("Removed legacy sensor entity %s (v0.1.x unique_id)", entity_id)
 
     # Create sensors for any worlds/nodes that registered before the platform was ready
     from . import _ensure_online_sensor, _ensure_node_sensors
