@@ -20,11 +20,11 @@ class SLNotificationService(BaseNotificationService):
         self.hass = hass
 
     async def async_send_message(self, message="", **kwargs):
-        bridge = self.hass.data.get(DOMAIN, {})
-        adapters = bridge.get("adapters", {})
-        registries = bridge.get("registries", {})
+        bridge   = self.hass.data.get(DOMAIN, {})
+        nodes    = bridge.get("nodes", {})           # world -> node_id -> {url, capabilities, ...}
+        online   = bridge.get("online_by_world", {}) # world -> [avatar_name, ...]
 
-        if not adapters:
+        if not nodes:
             _LOGGER.warning("No adapter endpoints registered.")
             return
 
@@ -32,44 +32,41 @@ class SLNotificationService(BaseNotificationService):
         if isinstance(targets, str):
             targets = [targets]
 
-        # No target or ["all"] — broadcast to every online avatar in every world
+        # No target or ["all"] — broadcast to every world
         if not targets or targets == [BROADCAST_KEYWORD]:
-            targets = [
-                f"{world}:{BROADCAST_KEYWORD}"
-                for world in adapters
-            ]
+            targets = [f"{world}:{BROADCAST_KEYWORD}" for world in nodes]
 
         session = async_get_clientsession(self.hass)
 
         for raw in targets:
             world = "secondlife"
-            name = raw
+            name  = raw
             if ":" in raw:
                 world, name = raw.split(":", 1)
 
-            adapter_info = adapters.get(world) or {}
-            url = adapter_info.get("url") if isinstance(adapter_info, dict) else adapter_info
-            caps = adapter_info.get("capabilities", []) if isinstance(adapter_info, dict) else []
+            # Find the first node for this world that can deliver messages
+            url = None
+            for node in nodes.get(world, {}).values():
+                caps = node.get("capabilities", [])
+                if not caps or "message" in caps:
+                    url = node.get("url")
+                    if url:
+                        break
 
             if not url:
-                _LOGGER.warning("No adapter URL for world '%s'", world)
+                _LOGGER.warning("No message-capable node for world '%s'", world)
                 continue
 
-            if caps and "message" not in caps:
-                _LOGGER.warning("Adapter for '%s' does not support messaging", world)
-                continue
+            online_list = online.get(world, [])
 
-            online = registries.get(world, {}).get("online", [])
-
-            # Broadcast to all online avatars in this world
             if name == BROADCAST_KEYWORD:
-                if not online:
+                if not online_list:
                     _LOGGER.debug("Broadcast to '%s': no avatars online", world)
                     continue
-                for avatar in online:
+                for avatar in online_list:
                     await _send(session, url, avatar, message, world)
             else:
-                if name in online:
+                if name in online_list:
                     await _send(session, url, name, message, world)
                 else:
                     _LOGGER.debug("'%s' is not online in '%s', skipping", name, world)
