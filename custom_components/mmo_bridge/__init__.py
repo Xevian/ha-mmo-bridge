@@ -319,7 +319,11 @@ def _ensure_online_sensor(hass, world):
 
 
 def _ensure_node_sensors(hass, world, node_id):
-    """Create world-data sensors for a node (idempotent)."""
+    """Create world-data sensors for a node (idempotent).
+    The 'default' node is a v1→v2 migration placeholder — never create sensors for it.
+    """
+    if node_id == "default":
+        return
     from .sensor import MMOBridgeWorldDataSensor, WORLD_DATA_SENSORS
     existing = hass.data[DOMAIN].setdefault("sensor_entities", {})
     add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
