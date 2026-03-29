@@ -1,19 +1,23 @@
 
 // ── Linkset data keys ───────────────────────────────────────────────────────
-string LD_HA_URL     = "mmo_ha_url";
-string LD_REGISTERED = "mmo_registered";
+string LD_HA_URL        = "mmo_ha_url";
+string LD_REGISTERED    = "mmo_registered";
+string LD_POLL_INTERVAL = "mmo_poll_interval";
+string LD_CUSTOM_LINES  = "mmo_custom_lines";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 string  ha_url; // Set via: /5 seturl <url>
 string  my_url;
 list    registered;                        // [key, name, key, name, ...]
+list    custom_lines;                      // [key, value, key, value, ...] pushed from HA
 integer CMD_CHANNEL  = 5;                  // Owner chat: /5 <command>
 integer listen_handle;
 
 // ── Async online checks ───────────────────────────────────────────────────────
-integer pending_checks = 0;
+integer pending_checks   = 0;
 list    request_id_to_name;
 list    online_names;
+integer last_online_count = 0;
 
 // ── URL request management ───────────────────────────────────────────────────
 key     urlRequestId;
@@ -22,13 +26,45 @@ integer is_ready             = FALSE;
 float   url_retry_s          = 2.0;
 float   poll_interval        = 60.0;
 key     regRequestKey;
-integer region_restarted     = FALSE; // flagged by CHANGED_REGION_START
+integer region_restarted     = FALSE;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+updateHoverText() {
+    integer reg_count = llGetListLength(registered) / 2;
+    string  line1;
+    string  line2;
+    vector  color;
+
+    if (ha_url == "") {
+        line1 = "MMO Bridge";
+        line2 = "No HA URL — use /5 seturl";
+        color = <1.0, 0.3, 0.3>;  // red
+    } else if (!is_ready) {
+        line1 = "MMO Bridge | " + llGetRegionName();
+        line2 = "Connecting...";
+        color = <1.0, 0.7, 0.0>;  // amber
+    } else {
+        line1 = "MMO Bridge | " + llGetRegionName();
+        line2 = (string)last_online_count + " online / " + (string)reg_count + " registered";
+        color = <0.3, 1.0, 0.3>;  // green
+    }
+
+    string text = line1 + "\n" + line2;
+
+    // Append custom lines pushed from HA (e.g. "Plex: 1 Watcher")
+    integer i;
+    for (i = 0; i < llGetListLength(custom_lines); i += 2) {
+        string val = llList2String(custom_lines, i + 1);
+        if (val != "") text += "\n" + val;
+    }
+
+    llSetText(text, color, 1.0);
+}
+
 string buildWorldData() {
-    vector pos          = llGetPos();
-    list   parcel       = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
+    vector pos           = llGetPos();
+    list   parcel        = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
     list   parcel_agents = llGetAgentList(AGENT_LIST_PARCEL, []);
     list   region_agents = llGetAgentList(AGENT_LIST_REGION, []);
     return llList2Json(JSON_OBJECT, [
@@ -109,18 +145,22 @@ sendPresenceNow() {
     }
 
     if (pending_checks == 0) {
+        last_online_count = 0;
         llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
             buildOnlineJson(online_names));
+        updateHoverText();
     }
 }
 
 showHelp() {
     llOwnerSay("MMO Bridge — chat commands on channel " + (string)CMD_CHANNEL + ":");
-    llOwnerSay("  seturl <url>  — save HA webhook URL to linkset data and re-register");
-    llOwnerSay("  status        — show HA URL, script URL, and registered avatar count");
-    llOwnerSay("  list          — list all registered avatars");
-    llOwnerSay("  clearusers    — remove all registered avatars");
-    llOwnerSay("  help          — show this message");
+    llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
+    llOwnerSay("  setpoll <sec>  — set presence poll interval (min 10s, default 60s)");
+    llOwnerSay("  status         — show current status");
+    llOwnerSay("  list           — list all registered avatars");
+    llOwnerSay("  remove <name>  — remove a specific avatar by name");
+    llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  help           — show this message");
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -140,6 +180,10 @@ default {
             llOwnerSay("MMO Bridge: no HA URL configured. Use /5 seturl <url> to set it.");
         }
 
+        // Load poll interval from linkset data
+        string stored_poll = llLinksetDataRead(LD_POLL_INTERVAL);
+        if (stored_poll != "") poll_interval = (float)stored_poll;
+
         // Restore registered avatars from linkset data
         string stored_reg = llLinksetDataRead(LD_REGISTERED);
         if (stored_reg != "") {
@@ -149,10 +193,18 @@ default {
             registered = [];
         }
 
+        // Restore custom hover text lines from linkset data
+        string stored_lines = llLinksetDataRead(LD_CUSTOM_LINES);
+        if (stored_lines != "")
+            custom_lines = llJson2List(stored_lines);
+        else
+            custom_lines = [];
+
         // Start listening for owner commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
 
+        updateHoverText();
         llOwnerSay("MMO Bridge: starting, requesting HTTP-in URL...");
         doRequestUrl();
     }
@@ -169,7 +221,19 @@ default {
             ha_url = new_url;
             llLinksetDataWrite(LD_HA_URL, ha_url);
             llOwnerSay("MMO Bridge: HA URL saved.");
+            updateHoverText();
             registerWithHA();
+
+        } else if (llGetSubString(msg, 0, 7) == "setpoll ") {
+            float secs = (float)llStringTrim(llGetSubString(msg, 8, -1), STRING_TRIM);
+            if (secs < 10.0) {
+                llOwnerSay("Poll interval must be at least 10 seconds.");
+            } else {
+                poll_interval = secs;
+                llLinksetDataWrite(LD_POLL_INTERVAL, (string)poll_interval);
+                llSetTimerEvent(poll_interval);
+                llOwnerSay("Poll interval set to " + (string)((integer)poll_interval) + "s.");
+            }
 
         } else if (msg == "status") {
             llOwnerSay("── MMO Bridge status ──");
@@ -178,7 +242,13 @@ default {
                 llOwnerSay("Script URL: " + my_url);
             else
                 llOwnerSay("Script URL: (not ready)");
-            llOwnerSay("Registered: " + (string)(llGetListLength(registered) / 2) + " avatar(s)");
+            llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
+            integer reg_count = llGetListLength(registered) / 2;
+            llOwnerSay("Registered: " + (string)reg_count + " avatar(s)");
+            integer si;
+            for (si = 0; si < llGetListLength(registered); si += 2) {
+                llOwnerSay("  - " + llList2String(registered, si + 1));
+            }
 
         } else if (msg == "list") {
             integer len = llGetListLength(registered);
@@ -192,9 +262,31 @@ default {
                     + "  (" + llList2String(registered, i) + ")");
             }
 
+        } else if (llGetSubString(msg, 0, 6) == "remove ") {
+            string target_name = llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM);
+            integer found = -1;
+            integer len = llGetListLength(registered);
+            integer i;
+            for (i = 0; i < len; i += 2) {
+                if (llList2String(registered, i + 1) == target_name) {
+                    found = i;
+                    jump removedone;
+                }
+            }
+            @removedone;
+            if (found != -1) {
+                registered = llDeleteSubList(registered, found, found + 1);
+                saveRegistered();
+                updateHoverText();
+                llOwnerSay(target_name + " removed (" + (string)(llGetListLength(registered) / 2) + " remaining).");
+            } else {
+                llOwnerSay("No avatar named '" + target_name + "' is registered.");
+            }
+
         } else if (msg == "clearusers") {
             registered = [];
             llLinksetDataDelete(LD_REGISTERED);
+            updateHoverText();
             llOwnerSay("MMO Bridge: all registered avatars cleared.");
 
         } else if (msg == "help") {
@@ -212,6 +304,7 @@ default {
                 url_request_inflight = FALSE;
                 is_ready             = FALSE;
                 llOwnerSay("MMO Bridge: URL request denied, retrying in " + (string)((integer)url_retry_s) + "s...");
+                updateHoverText();
                 scheduleUrlRetry();
                 return;
             }
@@ -220,10 +313,38 @@ default {
                 is_ready             = TRUE;
                 my_url               = body;
                 url_retry_s          = 2.0;
+                updateHoverText();
                 registerWithHA();
                 llSetTimerEvent(poll_interval);
                 return;
             }
+        }
+
+        // Commands from HA
+        string cmd = llJsonGetValue(body, ["command"]);
+        if (cmd != JSON_INVALID && cmd != "") {
+            if (cmd == "refresh") {
+                sendPresenceNow();
+            } else if (cmd == "set_text") {
+                string ckey = llJsonGetValue(body, ["key"]);
+                string cval = llJsonGetValue(body, ["value"]);
+                if (ckey != JSON_INVALID && ckey != "") {
+                    integer idx = llListFindList(custom_lines, [ckey]);
+                    if (cval == "" || cval == JSON_INVALID) {
+                        // Empty value removes the line
+                        if (idx != -1)
+                            custom_lines = llDeleteSubList(custom_lines, idx, idx + 1);
+                    } else if (idx == -1) {
+                        custom_lines += [ckey, cval];
+                    } else {
+                        custom_lines = llListReplaceList(custom_lines, [ckey, cval], idx, idx + 1);
+                    }
+                    llLinksetDataWrite(LD_CUSTOM_LINES, llList2Json(JSON_ARRAY, custom_lines));
+                    updateHoverText();
+                }
+            }
+            llHTTPResponse(id, 200, "OK");
+            return;
         }
 
         // Inbound message from HA: {"to":"Name","message":"Text"}
@@ -268,15 +389,20 @@ default {
     touch_start(integer n) {
         key    agent = llDetectedKey(0);
         string name  = llDetectedName(0);
-        integer idx  = llListFindList(registered, [agent]);
-        if (idx == -1) {
-            registered += [agent, name];
+
+        // Only allow group members with the group active (set the object's group accordingly)
+        if (!llSameGroup(agent)) {
+            llInstantMessage(agent, "Sorry, registration is restricted to group members. Activate the group tag and try again.");
+            return;
+        }
+
+        if (llListFindList(registered, [(string)agent]) == -1) {
+            registered += [(string)agent, name];
             saveRegistered();
+            updateHoverText();
             llOwnerSay(name + " registered (" + (string)(llGetListLength(registered) / 2) + " total).");
         } else {
-            registered = llDeleteSubList(registered, idx, idx + 1);
-            saveRegistered();
-            llOwnerSay(name + " deregistered (" + (string)(llGetListLength(registered) / 2) + " remaining).");
+            llInstantMessage(agent, "You are already registered. Ask the owner to remove you if needed.");
         }
     }
 
@@ -297,8 +423,10 @@ default {
         if (data == "1") online_names += [nm];
         --pending_checks;
         if (pending_checks <= 0) {
+            last_online_count = llGetListLength(online_names);
             llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
                 buildOnlineJson(online_names));
+            updateHoverText();
         }
     }
 
@@ -316,6 +444,7 @@ default {
             }
             url_retry_s = 2.0;
             llOwnerSay("MMO Bridge: region change, re-requesting URL...");
+            updateHoverText();
             doRequestUrl();
             llSetTimerEvent(url_retry_s);
         }

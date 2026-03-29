@@ -4,8 +4,10 @@ from homeassistant.components import persistent_notification
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import discovery
 from aiohttp import web
+import aiohttp
 import logging
 import secrets
 
@@ -98,6 +100,46 @@ async def async_setup(hass, config):
         "mmo_bridge",
         handle_notify_webhook,
     )
+
+    # Service: request an immediate presence update from one or all worlds
+    async def handle_request_update(call):
+        world = call.data.get("world")
+        worlds = [world] if world else list(hass.data[DOMAIN]["adapters"].keys())
+        session = async_get_clientsession(hass)
+        for w in worlds:
+            url = hass.data[DOMAIN]["adapters"].get(w, {}).get("url")
+            if not url:
+                _LOGGER.warning("request_update: no adapter URL for world '%s'", w)
+                continue
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                await session.post(url, json={"command": "refresh"}, timeout=timeout)
+                _LOGGER.debug("Sent refresh command to world '%s'", w)
+            except Exception as e:
+                _LOGGER.error("Failed to send refresh to world '%s': %s", w, e)
+
+    hass.services.async_register(DOMAIN, "request_update", handle_request_update)
+
+    # Service: push a named text line to the object hover text
+    async def handle_set_object_text(call):
+        world = call.data.get("world", "secondlife")
+        key   = call.data.get("key", "")
+        value = call.data.get("value", "")
+        if not key:
+            _LOGGER.warning("set_object_text: 'key' is required")
+            return
+        url = hass.data[DOMAIN]["adapters"].get(world, {}).get("url")
+        if not url:
+            _LOGGER.warning("set_object_text: no adapter URL for world '%s'", world)
+            return
+        try:
+            session = async_get_clientsession(hass)
+            timeout = aiohttp.ClientTimeout(total=5)
+            await session.post(url, json={"command": "set_text", "key": key, "value": value}, timeout=timeout)
+        except Exception as e:
+            _LOGGER.error("Failed to set object text for world '%s': %s", world, e)
+
+    hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
 
     # Load sensor platform
     hass.async_create_task(
