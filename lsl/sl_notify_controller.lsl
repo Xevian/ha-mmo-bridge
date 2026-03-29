@@ -10,8 +10,13 @@ string  ha_url; // Set via: /5 seturl <url>
 string  my_url;
 list    registered;                        // [key, name, key, name, ...]
 list    custom_lines;                      // [key, value, key, value, ...] pushed from HA
-integer CMD_CHANNEL  = 5;                  // Owner chat: /5 <command>
+integer CMD_CHANNEL        = 5;            // Owner chat: /5 <command>
 integer listen_handle;
+integer hud_listen_handle;
+
+// Shared private channel for bridge↔HUD URL bootstrap.
+// Must match the constant in sl_avatar_hud.lsl.
+integer BRIDGE_HUD_CHANNEL = -1296912194;
 
 // ── Async online checks ───────────────────────────────────────────────────────
 integer pending_checks   = 0;
@@ -179,6 +184,23 @@ sendPresenceNow() {
     }
 }
 
+sendUrlToHud(key av) {
+    if (ha_url == "") return;
+    llRegionSayTo(av, BRIDGE_HUD_CHANNEL, llList2Json(JSON_OBJECT, [
+        "type",       "url_update",
+        "ha_url",     ha_url,
+        "bridge_key", (string)llGetKey()
+    ]));
+}
+
+notifyHuds() {
+    integer len = llGetListLength(registered);
+    integer i;
+    for (i = 0; i < len; i += 2) {
+        sendUrlToHud((key)llList2String(registered, i));
+    }
+}
+
 showHelp() {
     llOwnerSay("MMO Bridge — chat commands on channel " + (string)CMD_CHANNEL + ":");
     llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
@@ -232,12 +254,28 @@ default {
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
 
+        // Start listening for HUD URL requests from registered avatars
+        if (hud_listen_handle) llListenRemove(hud_listen_handle);
+        hud_listen_handle = llListen(BRIDGE_HUD_CHANNEL, "", NULL_KEY, "");
+
         updateHoverText();
         llOwnerSay("MMO Bridge: starting, requesting HTTP-in URL...");
         doRequestUrl();
     }
 
     listen(integer channel, string name, key id, string msg) {
+        // HUD requesting a URL update — respond only if avatar is registered
+        if (channel == BRIDGE_HUD_CHANNEL) {
+            string type   = llJsonGetValue(msg, ["type"]);
+            string av_str = llJsonGetValue(msg, ["avatar_key"]);
+            if (type == "request_url" && av_str != JSON_INVALID) {
+                if (llListFindList(registered, [av_str]) != -1) {
+                    sendUrlToHud((key)av_str);
+                }
+            }
+            return;
+        }
+
         msg = llStringTrim(msg, STRING_TRIM);
 
         if (llGetSubString(msg, 0, 6) == "seturl ") {
@@ -348,6 +386,8 @@ default {
                 updateHoverText();
                 registerWithHA();
                 llSetTimerEvent(poll_interval);
+                // Push updated URL to all registered HUDs (HA restart changes the URL)
+                notifyHuds();
                 return;
             }
         }
@@ -446,8 +486,12 @@ default {
             saveRegistered();
             updateHoverText();
             llOwnerSay(name + " registered (" + (string)(llGetListLength(registered) / 2) + " total).");
+            // Send HA URL to this avatar's HUD immediately
+            sendUrlToHud(agent);
         } else {
             llInstantMessage(agent, "You are already registered. Ask the owner to remove you if needed.");
+            // Re-send URL in case their HUD restarted and lost it
+            sendUrlToHud(agent);
         }
     }
 

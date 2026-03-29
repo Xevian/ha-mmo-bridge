@@ -38,6 +38,7 @@ async def async_setup(hass, config):
     hass.data[DOMAIN]["online_by_world"] = {}
     hass.data[DOMAIN]["avatar_home"]     = {}
     hass.data[DOMAIN]["known_avatars"]   = {}
+    hass.data[DOMAIN]["avatar_state"]    = {}  # world -> avatar -> {afk, busy, in_voice, region, parcel}
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
     # Load persisted token and node URLs.
@@ -162,6 +163,32 @@ async def async_setup(hass, config):
                 _update_device_tracker(hass, world, avatar)
 
             async_dispatcher_send(hass, SIGNAL_PRESENCE_UPDATED, world)
+
+        # ── Avatar state update (from HUD/attachment) ─────────────────────────
+        if "avatar_state" in (data.get("capabilities") or []):
+            avatar = data.get("avatar")
+            if avatar:
+                hass.data[DOMAIN]["avatar_state"].setdefault(world, {})
+                old = hass.data[DOMAIN]["avatar_state"][world].get(avatar, {})
+                new = {
+                    "afk":      data.get("afk",      False),
+                    "busy":     data.get("busy",      False),
+                    "in_voice": data.get("in_voice",  False),
+                    "region":   data.get("region"),
+                    "parcel":   data.get("parcel"),
+                }
+                hass.data[DOMAIN]["avatar_state"][world][avatar] = new
+
+                # Fire events for boolean state transitions
+                for flag in ("afk", "busy", "in_voice"):
+                    if old.get(flag) != new[flag]:
+                        hass.bus.async_fire(f"{DOMAIN}_avatar_{flag}_changed", {
+                            "world":  world,
+                            "avatar": avatar,
+                            flag:     new[flag],
+                        })
+
+                _update_device_tracker(hass, world, avatar)
 
         return web.Response(text="OK")
 
@@ -297,17 +324,28 @@ def _update_device_tracker(hass, world, avatar):
     entity_id   = f"device_tracker.{DOMAIN}_{slugify(world)}_{slugify(avatar)}"
     online      = hass.data[DOMAIN]["online_by_world"].get(world, [])
     at_home_map = hass.data[DOMAIN]["avatar_home"].get(world, {})
+    av_state    = hass.data[DOMAIN].get("avatar_state", {}).get(world, {}).get(avatar, {})
 
     if avatar in online:
         state = STATE_HOME if at_home_map.get(avatar) else STATE_NOT_HOME
     else:
         state = STATE_UNAVAILABLE  # offline — distinct from away
 
-    hass.states.async_set(entity_id, state, {
+    attrs = {
         "source_type":   SourceType.GPS,
         "friendly_name": avatar,
         "world":         world,
-    })
+    }
+    if av_state:
+        attrs["afk"]      = av_state.get("afk",      False)
+        attrs["busy"]     = av_state.get("busy",      False)
+        attrs["in_voice"] = av_state.get("in_voice",  False)
+        if av_state.get("region"):
+            attrs["sl_region"] = av_state["region"]
+        if av_state.get("parcel"):
+            attrs["sl_parcel"] = av_state["parcel"]
+
+    hass.states.async_set(entity_id, state, attrs)
 
 
 # ── Sensor-creation helpers ───────────────────────────────────────────────────
