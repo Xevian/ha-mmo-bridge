@@ -29,7 +29,7 @@ integer BRIDGE_HUD_CHANNEL = -1296912194;
 string  ha_url;
 string  my_url;
 string  trusted_bridge_key;     // only accept URL updates from this object
-integer CMD_CHANNEL     = 5;
+integer CMD_CHANNEL     = 6;  // 5 is reserved for bridge/stats objects
 integer listen_handle;
 integer hud_listen_handle;
 
