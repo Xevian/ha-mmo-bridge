@@ -9,6 +9,7 @@ from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers import discovery
 from homeassistant.util import slugify
 from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
+from homeassistant.components.device_tracker.const import SourceType
 from aiohttp import web
 import aiohttp
 import logging
@@ -303,7 +304,7 @@ def _update_device_tracker(hass, world, avatar):
         state = STATE_UNAVAILABLE  # offline — distinct from away
 
     hass.states.async_set(entity_id, state, {
-        "source_type":   "gps",
+        "source_type":   SourceType.GPS,
         "friendly_name": avatar,
         "world":         world,
     })
