@@ -186,6 +186,7 @@ showHelp() {
     llOwnerSay("  status         — show current status");
     llOwnerSay("  list           — list all registered avatars");
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
+    llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
     llOwnerSay("  help           — show this message");
 }
@@ -309,6 +310,10 @@ default {
             } else {
                 llOwnerSay("No avatar named '" + target_name + "' is registered.");
             }
+
+        } else if (msg == "push") {
+            llOwnerSay("MMO Bridge: forcing presence push to HA...");
+            sendPresenceNow();
 
         } else if (msg == "clearusers") {
             registered = [];

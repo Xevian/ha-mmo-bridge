@@ -145,6 +145,7 @@ showHelp() {
     llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
     llOwnerSay("  setpoll <sec>  — set stats poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show current status");
+    llOwnerSay("  push           — force an immediate stats push to HA");
     llOwnerSay("  help           — show this message");
 }
 
@@ -219,6 +220,10 @@ default {
                 llOwnerSay("Script URL: (not ready)");
             llOwnerSay("Node ID   : " + computeNodeId());
             llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
+
+        } else if (msg == "push") {
+            llOwnerSay("MMO Stats: forcing stats push to HA...");
+            sendStatsNow();
 
         } else if (msg == "help") {
             showHelp();
