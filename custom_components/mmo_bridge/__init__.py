@@ -5,6 +5,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers import discovery
 from homeassistant.util import slugify
 from aiohttp import web
@@ -220,6 +221,10 @@ async def async_setup(hass, config):
             _LOGGER.error("Failed to set object text for world '%s': %s", world, e)
 
     hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
+
+    # Register mmo_bridge.reload service — reloads sensor + notify platforms
+    # without restarting HA. Changes to __init__.py still require a full restart.
+    await async_setup_reload_service(hass, DOMAIN, ["sensor", "notify"])
 
     # Load sensor platform
     hass.async_create_task(
