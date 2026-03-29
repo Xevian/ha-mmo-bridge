@@ -60,22 +60,38 @@ class SLNotificationService(BaseNotificationService):
             online_list = online.get(world, [])
 
             if name == BROADCAST_KEYWORD:
+                # Broadcast: send to every avatar currently online in this world
                 if not online_list:
-                    _LOGGER.debug("Broadcast to '%s': no avatars online", world)
+                    _LOGGER.debug("Broadcast to '%s': no avatars online, skipping", world)
                     continue
                 for avatar in online_list:
                     await _send(session, url, avatar, message, world)
             else:
-                if name in online_list:
-                    await _send(session, url, name, message, world)
-                else:
-                    _LOGGER.debug("'%s' is not online in '%s', skipping", name, world)
+                # Targeted: send unconditionally — the LSL script returns 404 if
+                # the avatar is not registered, which we log below. We do not gate
+                # on online_by_world because that list may be stale (e.g. right
+                # after an HA restart, before the first presence poll arrives).
+                if name not in online_list:
+                    _LOGGER.debug(
+                        "Sending to '%s' in '%s' (not seen in last presence poll — "
+                        "LSL will reject if not registered)",
+                        name, world,
+                    )
+                await _send(session, url, name, message, world)
 
 
 async def _send(session, url, avatar, message, world):
     try:
-        timeout = aiohttp.ClientTimeout(total=5)
-        await session.post(url, json={"to": avatar, "message": message}, timeout=timeout)
-        _LOGGER.debug("Sent message to %s in %s", avatar, world)
+        timeout  = aiohttp.ClientTimeout(total=5)
+        response = await session.post(
+            url, json={"to": avatar, "message": message}, timeout=timeout
+        )
+        if response.status == 404:
+            _LOGGER.warning(
+                "Message to '%s' in '%s' rejected by LSL script (avatar not registered)",
+                avatar, world,
+            )
+        else:
+            _LOGGER.debug("Sent message to %s in %s (HTTP %s)", avatar, world, response.status)
     except Exception as e:
         _LOGGER.error("Failed to send to %s in %s: %s", avatar, world, e)
