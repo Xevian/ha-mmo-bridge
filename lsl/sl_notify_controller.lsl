@@ -375,10 +375,23 @@ default {
         }
 
         // Inbound message from HA: {"to":"Name","message":"Text"}
+        //                      or {"to":"all","message":"Text"}  (broadcast)
         string toName = llJsonGetValue(body, ["to"]);
         string msg    = llJsonGetValue(body, ["message"]);
 
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
+            // Broadcast to all registered avatars
+            if (toName == "all") {
+                integer len = llGetListLength(registered);
+                integer i;
+                for (i = 0; i < len; i += 2) {
+                    key av = (key)llList2String(registered, i);
+                    llInstantMessage(av, msg);
+                }
+                llHTTPResponse(id, 200, "OK");
+                return;
+            }
+            // Targeted delivery
             key target = NULL_KEY;
             integer len = llGetListLength(registered);
             integer i;

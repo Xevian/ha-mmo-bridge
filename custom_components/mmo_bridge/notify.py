@@ -60,20 +60,16 @@ class SLNotificationService(BaseNotificationService):
             online_list = online.get(world, [])
 
             if name == BROADCAST_KEYWORD:
-                # Broadcast: send to every avatar currently online in this world
-                if not online_list:
-                    _LOGGER.debug("Broadcast to '%s': no avatars online, skipping", world)
-                    continue
-                for avatar in online_list:
-                    await _send(session, url, avatar, message, world)
+                # Broadcast: send to="all" — the LSL script iterates its own
+                # registered list and delivers to every avatar in-world.
+                # This avoids relying on HA's online_by_world being up to date.
+                await _send(session, url, "all", message, world)
             else:
                 # Targeted: send unconditionally — the LSL script returns 404 if
-                # the avatar is not registered, which we log below. We do not gate
-                # on online_by_world because that list may be stale (e.g. right
-                # after an HA restart, before the first presence poll arrives).
+                # the avatar is not registered.
                 if name not in online_list:
                     _LOGGER.debug(
-                        "Sending to '%s' in '%s' (not seen in last presence poll — "
+                        "Sending to '%s' in '%s' (not in last presence poll — "
                         "LSL will reject if not registered)",
                         name, world,
                     )
