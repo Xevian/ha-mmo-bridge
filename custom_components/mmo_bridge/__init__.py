@@ -8,6 +8,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers import discovery
 from homeassistant.util import slugify
+from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
 from aiohttp import web
 import aiohttp
 import logging
@@ -297,9 +298,9 @@ def _update_device_tracker(hass, world, avatar):
     at_home_map = hass.data[DOMAIN]["avatar_home"].get(world, {})
 
     if avatar in online:
-        state = "home" if at_home_map.get(avatar) else "not_home"
+        state = STATE_HOME if at_home_map.get(avatar) else STATE_NOT_HOME
     else:
-        state = "not_home"
+        state = STATE_UNAVAILABLE  # offline — distinct from away
 
     hass.states.async_set(entity_id, state, {
         "source_type":   "gps",
