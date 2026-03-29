@@ -118,6 +118,8 @@ async def async_setup(hass, config):
             world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
             if node_id in world_nodes:
                 world_nodes[node_id]["world_data"] = data["world_data"]
+            # Expand sensors for any new numeric keys in this payload
+            _ensure_node_sensors(hass, world, node_id)
             async_dispatcher_send(hass, SIGNAL_NODE_UPDATED, world, node_id)
 
         # ── Presence update ───────────────────────────────────────────────────
@@ -320,25 +322,61 @@ def _ensure_online_sensor(hass, world):
 
 def _ensure_node_sensors(hass, world, node_id):
     """Create world-data sensors for a node (idempotent).
-    The 'default' node is a v1→v2 migration placeholder — never create sensors for it.
+
+    Sensors are created for:
+    - Every key in WORLD_DATA_SENSORS (well-known SL metrics, always present)
+    - Any additional numeric key that has already arrived in world_data for
+      this node and is not in WORLD_DATA_STRING_KEYS (dynamic expansion for
+      other worlds or future SL fields)
+
+    The 'default' node is a v1→v2 migration placeholder — skip it entirely.
     """
     if node_id == "default":
         return
-    from .sensor import MMOBridgeWorldDataSensor, WORLD_DATA_SENSORS
-    existing = hass.data[DOMAIN].setdefault("sensor_entities", {})
+    from .sensor import (
+        MMOBridgeWorldDataSensor,
+        WORLD_DATA_SENSORS,
+        WORLD_DATA_STRING_KEYS,
+    )
+    existing     = hass.data[DOMAIN].setdefault("sensor_entities", {})
     add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
     if add_entities is None:
         return
+
     new_entities = []
-    for sensor_key, name_suffix, unit, icon, cast_fn in WORLD_DATA_SENSORS:
+
+    def _add_sensor(sensor_key, name_suffix, unit, icon, cast_fn):
         ekey = f"{world}__{node_id}__{sensor_key}"
         if ekey in existing:
-            continue
+            return
         entity = MMOBridgeWorldDataSensor(
             hass, world, node_id, sensor_key, name_suffix, unit, icon, cast_fn
         )
         existing[ekey] = entity
         new_entities.append(entity)
+
+    # Well-known keys — always create these regardless of whether data has arrived
+    for sensor_key, (name_suffix, unit, icon, cast_fn) in WORLD_DATA_SENSORS.items():
+        _add_sensor(sensor_key, name_suffix, unit, icon, cast_fn)
+
+    # Dynamic keys — any numeric field already present in world_data but not
+    # already handled above or explicitly flagged as a string field
+    world_data = (
+        hass.data[DOMAIN]["nodes"]
+        .get(world, {})
+        .get(node_id, {})
+        .get("world_data", {})
+    )
+    for sensor_key, raw_value in world_data.items():
+        if sensor_key in WORLD_DATA_SENSORS or sensor_key in WORLD_DATA_STRING_KEYS:
+            continue
+        try:
+            float(raw_value)   # only create a sensor if the value is numeric
+        except (ValueError, TypeError):
+            continue
+        name_suffix = sensor_key.replace("_", " ").title()
+        _add_sensor(sensor_key, name_suffix, None, "mdi:chart-line", float)
+
     if new_entities:
         add_entities(new_entities)
 

@@ -1,4 +1,5 @@
 
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers import entity_registry as er
@@ -9,14 +10,21 @@ from . import DOMAIN, SIGNAL_PRESENCE_UPDATED, SIGNAL_NODE_UPDATED
 
 _LOGGER = logging.getLogger(__name__)
 
-# World-data fields exposed as individual graphable sensors.
-# (key, name suffix, unit, icon, cast_fn)
-WORLD_DATA_SENSORS = [
-    ("agents_on_parcel", "Parcel Agents", "avatars", "mdi:account-group",    int),
-    ("agents_in_region", "Region Agents", "avatars", "mdi:account-multiple", int),
-    ("time_dilation",    "Time Dilation", None,      "mdi:clock-fast",       float),
-    ("region_fps",       "Region FPS",    "FPS",     "mdi:speedometer",      float),
-]
+# Well-known world_data keys with display metadata.
+# key -> (name_suffix, unit_of_measurement, icon, cast_fn)
+# Any key that arrives in world_data but is NOT in this dict and NOT in
+# WORLD_DATA_STRING_KEYS will get a generic sensor with sensible defaults.
+WORLD_DATA_SENSORS = {
+    "agents_on_parcel": ("Parcel Agents", "avatars", "mdi:account-group",    int),
+    "agents_in_region": ("Region Agents", "avatars", "mdi:account-multiple", int),
+    "time_dilation":    ("Time Dilation", None,      "mdi:clock-fast",       float),
+    "region_fps":       ("Region FPS",    "FPS",     "mdi:speedometer",      float),
+}
+
+# world_data keys that are informational strings — never create numeric sensors for these
+WORLD_DATA_STRING_KEYS = {
+    "region", "parcel", "sim_channel", "sim_version", "sim_start_time",
+}
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -29,7 +37,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     #   v0.2.0 migration artifact: mmo_bridge_<world>_default_<key>
     registry = er.async_get(hass)
     for world in hass.data[DOMAIN]["nodes"]:
-        for sensor_key, _, _, _, _ in WORLD_DATA_SENSORS:
+        for sensor_key in WORLD_DATA_SENSORS:
             for old_unique_id in (
                 f"{DOMAIN}_{world}_{sensor_key}",           # v0.1.x
                 f"{DOMAIN}_{world}_default_{sensor_key}",   # v0.2.0 migration node
@@ -51,8 +59,8 @@ class MMOBridgeSensor(Entity):
     """Sensor tracking how many avatars are online in a given world."""
 
     def __init__(self, hass, world):
-        self._hass  = hass
-        self._world = world
+        self._hass   = hass
+        self._world  = world
         self._online = []
 
     @property
@@ -70,6 +78,10 @@ class MMOBridgeSensor(Entity):
     @property
     def unit_of_measurement(self):
         return "avatars"
+
+    @property
+    def state_class(self):
+        return SensorStateClass.MEASUREMENT
 
     @property
     def icon(self):
@@ -131,6 +143,10 @@ class MMOBridgeWorldDataSensor(Entity):
     @property
     def unit_of_measurement(self):
         return self._unit
+
+    @property
+    def state_class(self):
+        return SensorStateClass.MEASUREMENT
 
     @property
     def icon(self):
