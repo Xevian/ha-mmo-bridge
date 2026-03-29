@@ -15,7 +15,10 @@ import secrets
 DOMAIN = "mmo_bridge"
 SIGNAL_PRESENCE_UPDATED = f"{DOMAIN}_presence_updated"
 SIGNAL_NODE_UPDATED     = f"{DOMAIN}_node_updated"
-STORE_VERSION           = 2
+# HA Store version — always 1. We track our own schema version inside the data
+# dict (key "version") to avoid HA's built-in migration pipeline.
+_HA_STORE_VERSION = 1
+STORE_VERSION     = 2  # our internal schema version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,8 +37,10 @@ async def async_setup(hass, config):
     hass.data[DOMAIN]["known_avatars"]   = {}
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
-    # Load persisted token and node URLs
-    store  = Store(hass, STORE_VERSION, DOMAIN)
+    # Load persisted token and node URLs.
+    # _HA_STORE_VERSION is always 1 — HA never triggers its own migration logic.
+    # We manage schema upgrades ourselves via the "version" key inside the data.
+    store  = Store(hass, _HA_STORE_VERSION, DOMAIN)
     stored = await store.async_load() or {}
 
     # Migrate v1 flat adapters → v2 nested nodes
