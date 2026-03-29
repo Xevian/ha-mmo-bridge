@@ -97,6 +97,16 @@ async def async_setup(hass, config):
                 "world_data":   existing_wd,
             }
 
+            # Drop the placeholder "default" node created by v1→v2 migration once
+            # a real named node (with capabilities) has registered for this world
+            if node_id != "default" and capabilities:
+                stale = hass.data[DOMAIN]["nodes"][world].pop("default", None)
+                if stale:
+                    _LOGGER.info(
+                        "Removed stale 'default' node for world '%s' "
+                        "(replaced by node '%s')", world, node_id
+                    )
+
             await store.async_save(_make_store_payload(token, hass.data[DOMAIN]["nodes"]))
             _LOGGER.info("Node '%s' registered for world '%s': %s", node_id, world, url)
 

@@ -44,11 +44,10 @@ class SLNotificationService(BaseNotificationService):
             if ":" in raw:
                 world, name = raw.split(":", 1)
 
-            # Find the first node for this world that can deliver messages
+            # Find the first node that explicitly advertises the 'message' capability
             url = None
             for node in nodes.get(world, {}).values():
-                caps = node.get("capabilities", [])
-                if not caps or "message" in caps:
+                if "message" in node.get("capabilities", []):
                     url = node.get("url")
                     if url:
                         break
