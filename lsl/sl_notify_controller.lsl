@@ -30,6 +30,29 @@ integer region_restarted     = FALSE;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+string computeNodeId() {
+    vector pos    = llGetPos();
+    list   parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
+    string nm     = llToLower(llList2String(parcel, 0));
+    list   parts  = llParseString2List(nm, [" "], []);
+    return llDumpList2String(parts, "_");
+}
+
+list buildAtHome() {
+    list parcel_agents = llGetAgentList(AGENT_LIST_PARCEL, []);
+    list at_home = [];
+    integer len = llGetListLength(registered);
+    integer i;
+    for (i = 0; i < len; i += 2) {
+        key    av = (key)llList2String(registered, i);
+        string nm = llList2String(registered, i + 1);
+        if (llListFindList(parcel_agents, [av]) != -1) {
+            at_home += [nm];
+        }
+    }
+    return at_home;
+}
+
 updateHoverText() {
     integer reg_count = llGetListLength(registered) / 2;
     string  line1;
@@ -88,22 +111,26 @@ registerWithHA() {
     if (!is_ready || ha_url == "") return;
     string payload = llList2Json(JSON_OBJECT, [
         "world",        "secondlife",
+        "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message"])
+        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message", "display"])
     ]);
     regRequestKey = llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
     llOwnerSay("MMO Bridge: registering with HA...");
 }
 
 string buildOnlineJson(list names) {
-    string arr  = llList2Json(JSON_ARRAY, names);
-    string caps = llList2Json(JSON_ARRAY, ["presence", "message"]);
+    string arr    = llList2Json(JSON_ARRAY, names);
+    string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display"]);
+    string athome = llList2Json(JSON_ARRAY, buildAtHome());
     list fields = [
         "world",        "secondlife",
+        "node_id",      computeNodeId(),
         "adapter_url",  my_url,
         "capabilities", caps,
         "world_data",   buildWorldData(),
-        "online",       arr
+        "online",       arr,
+        "at_home",      athome
     ];
     if (region_restarted) {
         fields += ["region_restart", JSON_TRUE];
@@ -159,6 +186,7 @@ showHelp() {
     llOwnerSay("  status         — show current status");
     llOwnerSay("  list           — list all registered avatars");
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
+    llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
     llOwnerSay("  help           — show this message");
 }
@@ -283,6 +311,10 @@ default {
                 llOwnerSay("No avatar named '" + target_name + "' is registered.");
             }
 
+        } else if (msg == "push") {
+            llOwnerSay("MMO Bridge: forcing presence push to HA...");
+            sendPresenceNow();
+
         } else if (msg == "clearusers") {
             registered = [];
             llLinksetDataDelete(LD_REGISTERED);
@@ -348,10 +380,23 @@ default {
         }
 
         // Inbound message from HA: {"to":"Name","message":"Text"}
+        //                      or {"to":"all","message":"Text"}  (broadcast)
         string toName = llJsonGetValue(body, ["to"]);
         string msg    = llJsonGetValue(body, ["message"]);
 
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
+            // Broadcast to all registered avatars
+            if (toName == "all") {
+                integer len = llGetListLength(registered);
+                integer i;
+                for (i = 0; i < len; i += 2) {
+                    key av = (key)llList2String(registered, i);
+                    llInstantMessage(av, msg);
+                }
+                llHTTPResponse(id, 200, "OK");
+                return;
+            }
+            // Targeted delivery
             key target = NULL_KEY;
             integer len = llGetListLength(registered);
             integer i;
