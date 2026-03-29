@@ -120,6 +120,27 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "request_update", handle_request_update)
 
+    # Service: push a named text line to the object hover text
+    async def handle_set_object_text(call):
+        world = call.data.get("world", "secondlife")
+        key   = call.data.get("key", "")
+        value = call.data.get("value", "")
+        if not key:
+            _LOGGER.warning("set_object_text: 'key' is required")
+            return
+        url = hass.data[DOMAIN]["adapters"].get(world, {}).get("url")
+        if not url:
+            _LOGGER.warning("set_object_text: no adapter URL for world '%s'", world)
+            return
+        try:
+            session = async_get_clientsession(hass)
+            timeout = aiohttp.ClientTimeout(total=5)
+            await session.post(url, json={"command": "set_text", "key": key, "value": value}, timeout=timeout)
+        except Exception as e:
+            _LOGGER.error("Failed to set object text for world '%s': %s", world, e)
+
+    hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
+
     # Load sensor platform
     hass.async_create_task(
         discovery.async_load_platform(hass, "sensor", DOMAIN, {}, config)

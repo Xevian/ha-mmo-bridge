@@ -3,11 +3,13 @@
 string LD_HA_URL        = "mmo_ha_url";
 string LD_REGISTERED    = "mmo_registered";
 string LD_POLL_INTERVAL = "mmo_poll_interval";
+string LD_CUSTOM_LINES  = "mmo_custom_lines";
 
 // ── Configuration ────────────────────────────────────────────────────────────
 string  ha_url; // Set via: /5 seturl <url>
 string  my_url;
 list    registered;                        // [key, name, key, name, ...]
+list    custom_lines;                      // [key, value, key, value, ...] pushed from HA
 integer CMD_CHANNEL  = 5;                  // Owner chat: /5 <command>
 integer listen_handle;
 
@@ -47,7 +49,17 @@ updateHoverText() {
         line2 = (string)last_online_count + " online / " + (string)reg_count + " registered";
         color = <0.3, 1.0, 0.3>;  // green
     }
-    llSetText(line1 + "\n" + line2, color, 1.0);
+
+    string text = line1 + "\n" + line2;
+
+    // Append custom lines pushed from HA (e.g. "Plex: 1 Watcher")
+    integer i;
+    for (i = 0; i < llGetListLength(custom_lines); i += 2) {
+        string val = llList2String(custom_lines, i + 1);
+        if (val != "") text += "\n" + val;
+    }
+
+    llSetText(text, color, 1.0);
 }
 
 string buildWorldData() {
@@ -181,6 +193,13 @@ default {
             registered = [];
         }
 
+        // Restore custom hover text lines from linkset data
+        string stored_lines = llLinksetDataRead(LD_CUSTOM_LINES);
+        if (stored_lines != "")
+            custom_lines = llJson2List(stored_lines);
+        else
+            custom_lines = [];
+
         // Start listening for owner commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
@@ -306,6 +325,23 @@ default {
         if (cmd != JSON_INVALID && cmd != "") {
             if (cmd == "refresh") {
                 sendPresenceNow();
+            } else if (cmd == "set_text") {
+                string ckey = llJsonGetValue(body, ["key"]);
+                string cval = llJsonGetValue(body, ["value"]);
+                if (ckey != JSON_INVALID && ckey != "") {
+                    integer idx = llListFindList(custom_lines, [ckey]);
+                    if (cval == "" || cval == JSON_INVALID) {
+                        // Empty value removes the line
+                        if (idx != -1)
+                            custom_lines = llDeleteSubList(custom_lines, idx, idx + 1);
+                    } else if (idx == -1) {
+                        custom_lines += [ckey, cval];
+                    } else {
+                        custom_lines = llListReplaceList(custom_lines, [ckey, cval], idx, idx + 1);
+                    }
+                    llLinksetDataWrite(LD_CUSTOM_LINES, llList2Json(JSON_ARRAY, custom_lines));
+                    updateHoverText();
+                }
             }
             llHTTPResponse(id, 200, "OK");
             return;
