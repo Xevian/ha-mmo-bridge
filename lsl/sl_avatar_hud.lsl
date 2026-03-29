@@ -9,7 +9,7 @@
 //      automatically via a private channel.
 //   2. If you come back into range of your bridge after an HA restart, the
 //      bridge pushes the updated URL to the HUD automatically.
-//   3. Manual fallback: /5 seturl <full webhook URL including ?token=...>
+//   3. Manual fallback: /6 seturl <full webhook URL including ?token=...>
 //
 // Security: the HUD stores the trusted bridge object's UUID on first contact.
 // URL updates from any other object's key are silently ignored — you won't
@@ -129,7 +129,7 @@ requestUrlFromBridge() {
 }
 
 showHelp() {
-    llOwnerSay("MMO HUD — chat commands on channel " + (string)CMD_CHANNEL + ":");
+    llOwnerSay("MMO HUD — chat commands on channel " + (string)CMD_CHANNEL + " (use /" + (string)CMD_CHANNEL + " <command>):");
     llOwnerSay("  seturl <url>    — manually set HA webhook URL (fallback)");
     llOwnerSay("  setpoll <sec>   — set state poll interval (min 5s, default 15s)");
     llOwnerSay("  setbridge       — clear trusted bridge key (accept next bridge that responds)");
