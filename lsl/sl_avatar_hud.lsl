@@ -27,6 +27,7 @@ string LD_HA_URL        = "mmohud_ha_url";
 string LD_BRIDGE_KEY    = "mmohud_bridge_key";   // trusted bridge object UUID
 string LD_POLL_INTERVAL = "mmohud_poll_interval";
 string LD_HMAC_SECRET   = "mmohud_hmac_secret";  // per-avatar secret from HA
+string LD_OWNER         = "mmohud_owner";
 
 // ── Shared channel — MUST match sl_notify_controller.lsl ─────────────────────
 integer BRIDGE_HUD_CHANNEL = -1296912194;
@@ -172,6 +173,18 @@ showHelp() {
 
 default {
     state_entry() {
+        // Belt-and-braces ownership check — catches inventory copies where
+        // CHANGED_OWNER never fires
+        string stored_owner  = llLinksetDataRead(LD_OWNER);
+        string current_owner = (string)llGetOwner();
+        if (stored_owner != current_owner) {
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_BRIDGE_KEY);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_HMAC_SECRET);
+            llLinksetDataWrite(LD_OWNER, current_owner);
+        }
+
         // Guard: only run when actually worn — show a hint if rezzed in-world
         if (!llGetAttached()) {
             llSetText("MMO HUD\nWear me — do not rez in world", <1.0, 0.3, 0.3>, 1.0);
@@ -388,6 +401,7 @@ default {
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llLinksetDataDelete(LD_POLL_INTERVAL);
             llLinksetDataDelete(LD_HMAC_SECRET);
+            llLinksetDataDelete(LD_OWNER);
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {

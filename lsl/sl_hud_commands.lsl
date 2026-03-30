@@ -111,6 +111,9 @@ sendCommand(string script_id) {
 
 default {
     state_entry() {
+        // Linkset data is owned and wiped by sl_avatar_hud.lsl on owner change —
+        // no independent wipe needed here, but reset menu state cleanly regardless.
+
         // Stable per-session menu channel derived from owner UUID
         menu_channel = (integer)("0x" + llGetSubString((string)llGetOwner(), 0, 7))
                        | 0x80000000;

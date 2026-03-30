@@ -18,6 +18,7 @@ integer PROTOCOL_VERSION = 1;
 string LD_HA_URL        = "mmostats_ha_url";
 string LD_POLL_INTERVAL = "mmostats_poll_interval";
 string LD_CUSTOM_LINES  = "mmostats_custom_lines";
+string LD_OWNER         = "mmostats_owner";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
@@ -162,6 +163,15 @@ showHelp() {
 
 default {
     state_entry() {
+        string stored_owner  = llLinksetDataRead(LD_OWNER);
+        string current_owner = (string)llGetOwner();
+        if (stored_owner != current_owner) {
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataWrite(LD_OWNER, current_owner);
+        }
+
         is_ready             = FALSE;
         url_request_inflight = FALSE;
         url_retry_s          = 2.0;
@@ -346,6 +356,7 @@ default {
             llLinksetDataDelete(LD_HA_URL);
             llLinksetDataDelete(LD_POLL_INTERVAL);
             llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataDelete(LD_OWNER);
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {
