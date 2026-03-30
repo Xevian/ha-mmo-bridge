@@ -180,12 +180,15 @@ default {
                 return;
             }
 
+            // Only announce if the URL actually changed
+            if (new_ha_url != ha_url)
+                llOwnerSay("MMO HUD: HA URL updated from bridge (" + name + ").");
+
             ha_url             = new_ha_url;
             trusted_bridge_key = (string)id;
             llLinksetDataWrite(LD_HA_URL,     ha_url);
             llLinksetDataWrite(LD_BRIDGE_KEY, trusted_bridge_key);
-            llOwnerSay("MMO HUD: HA URL updated from bridge (" + name + ").");
-    
+
             if (is_ready) {
                 registerWithHA();
                 sendStateNow();
@@ -283,11 +286,9 @@ default {
 
     http_response(key req, integer status, list meta, string body) {
         if (req == regRequestKey) {
-            if (status == 200) {
-                llOwnerSay("MMO HUD: connected to HA.");
-            } else {
+            if (status != 200) {
                 llOwnerSay("MMO HUD: HA rejected state push (HTTP " + (string)status
-                    + "). Check URL — use /5 setbridge to re-pair.");
+                    + "). Check URL — use /6 setbridge to re-pair.");
             }
             regRequestKey = NULL_KEY;
         }
