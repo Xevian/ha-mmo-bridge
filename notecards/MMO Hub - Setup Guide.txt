@@ -1,0 +1,96 @@
+╔══════════════════════════════════════════════╗
+║         MMO Hub — Setup Guide               ║
+╚══════════════════════════════════════════════╝
+
+Welcome! This object connects your Second Life
+presence to Home Assistant so the owner can see
+when you're online, send you messages in-world,
+and run automations based on your status.
+
+───────────────────────────────────────────────
+  STEP 1 — Register
+───────────────────────────────────────────────
+
+Make sure your group tag is active, then TOUCH
+this object.
+
+You'll receive an IM confirming registration.
+That's it — you're connected!
+
+If you're already registered and touch again,
+your HUD URL will be refreshed automatically.
+
+───────────────────────────────────────────────
+  STEP 2 — Wear the HUD
+───────────────────────────────────────────────
+
+You should have received an MMO HUD object in
+your inventory. Wear it as an attachment.
+
+After wearing it, touch this Hub object once —
+the Hub will send your Home Assistant URL to
+the HUD automatically. You only need to do this
+once (or after a HUD reset).
+
+See the "MMO HUD - Setup Guide" notecard inside
+your HUD for HUD-specific instructions.
+
+───────────────────────────────────────────────
+  WHAT GETS TRACKED
+───────────────────────────────────────────────
+
+  • Online / offline status
+  • Whether you're at the home parcel
+  • Region and parcel name (via HUD)
+  • AFK and busy flags (via HUD)
+
+Your position is sent but only used for the
+device tracker — it's not stored or logged.
+
+───────────────────────────────────────────────
+  RECEIVING MESSAGES
+───────────────────────────────────────────────
+
+The owner can send you IMs from Home Assistant
+automations. They'll arrive as normal IMs from
+this object and look like:
+
+  ====================
+  == Dinner's ready!
+  ====================
+
+───────────────────────────────────────────────
+  HA SCRIPTS (the fun bit!)
+───────────────────────────────────────────────
+
+The owner can set up Home Assistant scripts that
+you can trigger from your HUD — things like
+toggling lights, activating scenes, or any other
+HA automation.
+
+Just ask the owner to label a HA script with
+"MMO Script" and it will appear in your HUD
+touch menu automatically.
+
+Want something private just for you? Ask the
+owner to label a script "MMO - Your Name" and
+only your HUD will see it.
+
+───────────────────────────────────────────────
+  NEED TO UNREGISTER?
+───────────────────────────────────────────────
+
+Ask the owner to run:  /5 remove Your Name
+
+───────────────────────────────────────────────
+  PROBLEMS?
+───────────────────────────────────────────────
+
+Not receiving IMs? Make sure you registered by
+touching the Hub with your group tag active.
+
+HUD not connecting? Touch the Hub while wearing
+the HUD to push the URL to it again.
+
+Contact the owner if you continue to have
+trouble.

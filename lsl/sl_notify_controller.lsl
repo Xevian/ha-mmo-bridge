@@ -215,6 +215,7 @@ showHelp() {
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
     llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
 }
 
@@ -366,6 +367,14 @@ default {
 
         } else if (msg == "help") {
             showHelp();
+
+        } else if (msg == "hardreset") {
+            llOwnerSay("MMO Bridge: clearing all stored data and resetting...");
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_REGISTERED);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llResetScript();
 
         } else {
             llOwnerSay("Unknown command. Type /5 help for available commands.");

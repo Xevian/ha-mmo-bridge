@@ -159,6 +159,7 @@ showHelp() {
     llOwnerSay("  setbridge       — clear trusted bridge key (re-pair next bridge)");
     llOwnerSay("  status          — show current status");
     llOwnerSay("  push            — force an immediate state push to HA");
+    llOwnerSay("  hardreset       — clear ALL stored data and reset (re-pair from scratch)");
     llOwnerSay("  help            — show this message");
     llOwnerSay("Touch the HUD to open the HA script menu.");
 }
@@ -296,6 +297,14 @@ default {
 
         } else if (msg == "help") {
             showHelp();
+
+        } else if (msg == "hardreset") {
+            llOwnerSay("MMO HUD: clearing all stored data and resetting...");
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_BRIDGE_KEY);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_HMAC_SECRET);
+            llResetScript();
 
         } else {
             llOwnerSay("Unknown command. Type /6 help for available commands.");

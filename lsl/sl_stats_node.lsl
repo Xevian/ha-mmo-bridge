@@ -146,6 +146,7 @@ showHelp() {
     llOwnerSay("  setpoll <sec>  — set stats poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show current status");
     llOwnerSay("  push           — force an immediate stats push to HA");
+    llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
 }
 
@@ -227,6 +228,13 @@ default {
 
         } else if (msg == "help") {
             showHelp();
+
+        } else if (msg == "hardreset") {
+            llOwnerSay("MMO Stats: clearing all stored data and resetting...");
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llResetScript();
 
         } else {
             llOwnerSay("Unknown command. Type /5 help for available commands.");
