@@ -1,18 +1,18 @@
 
-// ── MMO Bridge — Avatar HUD ───────────────────────────────────────────────────
+// ── MMO Bridge — Avatar HUD (main) ───────────────────────────────────────────
 //
 // Wear as a HUD or attachment. Sends avatar state (AFK, busy, location) to
-// Home Assistant and lets you run labelled HA scripts from a touch menu.
+// Home Assistant as attributes on the device tracker entity.
+//
+// A companion script (sl_hud_commands.lsl) in the same linkset handles the
+// touch menu and HMAC-signed script commands. Keeping them separate means
+// llHMAC's 10-second delay only freezes the command script — this script
+// stays fully responsive for state polling and bridge communication.
 //
 // URL bootstrap (no manual typing needed):
 //   1. Touch the bridge object — it sends the HA URL to this HUD automatically.
 //   2. If you re-enter range of your bridge after an HA restart, URL auto-updates.
 //   3. Manual fallback: /6 seturl <full webhook URL including ?token=...>
-//
-// Script menu:
-//   Touch the HUD to open the script menu. Any HA script labelled "MMO Script"
-//   appears for all avatars. Scripts labelled "MMO - <Your Name>" are private
-//   to you. Commands are HMAC-signed so only this HUD can trigger them.
 //
 // Security: the HUD stores the trusted bridge object's UUID on first contact.
 // URL updates from any other object are silently ignored.
@@ -21,37 +21,31 @@
 
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmohud_ha_url";
-string LD_BRIDGE_KEY    = "mmohud_bridge_key";  // trusted bridge object UUID
+string LD_BRIDGE_KEY    = "mmohud_bridge_key";   // trusted bridge object UUID
 string LD_POLL_INTERVAL = "mmohud_poll_interval";
-string LD_HMAC_SECRET   = "mmohud_hmac_secret"; // per-avatar HMAC secret from HA
+string LD_HMAC_SECRET   = "mmohud_hmac_secret";  // per-avatar secret from HA
 
 // ── Shared channel — MUST match sl_notify_controller.lsl ─────────────────────
 integer BRIDGE_HUD_CHANNEL = -1296912194;
 
+// ── Linked-message protocol — MUST match sl_hud_commands.lsl ─────────────────
+integer MSG_OPEN_MENU = 1001;  // → command script: open the script menu
+
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
 string  my_url;
-string  trusted_bridge_key;     // only accept URL updates from this object
-string  hmac_secret;            // HMAC-SHA256 secret for signing commands
-integer CMD_CHANNEL     = 6;
+string  trusted_bridge_key;
+integer CMD_CHANNEL = 6;
 integer listen_handle;
 integer hud_listen_handle;
-integer menu_channel;
-integer menu_listen_handle;
 
 // ── URL request management ────────────────────────────────────────────────────
 key     urlRequestId;
 integer url_request_inflight = FALSE;
 integer is_ready             = FALSE;
 float   url_retry_s          = 2.0;
-float   poll_interval        = 15.0;  // shorter than bridge — we want quick AFK detection
+float   poll_interval        = 15.0;
 key     regRequestKey;
-
-// ── Script menu state ─────────────────────────────────────────────────────────
-key     scriptListRequestKey;
-key     commandRequestKey;
-list    cached_scripts;       // [id, name, id, name, ...] from HA
-integer SCRIPT_MENU_MAX = 11; // max script buttons (1 slot reserved for Cancel)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,69 +107,6 @@ requestUrlFromBridge() {
     ]));
 }
 
-// ── Script menu helpers ───────────────────────────────────────────────────────
-
-requestScriptList() {
-    if (ha_url == "" || !is_ready) {
-        llOwnerSay("MMO HUD: not connected to HA yet.");
-        return;
-    }
-    string payload = llList2Json(JSON_OBJECT, [
-        "world",  "secondlife",
-        "type",   "hud_list_scripts",
-        "avatar", llKey2Name(llGetOwner())
-    ]);
-    scriptListRequestKey = llHTTPRequest(ha_url,
-        [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
-}
-
-showScriptMenu() {
-    integer count = llGetListLength(cached_scripts) / 2;
-    if (count == 0) {
-        llOwnerSay("MMO HUD: no scripts available. In HA, label a script 'MMO Script' to add it here.");
-        return;
-    }
-
-    list    buttons;
-    integer i;
-    integer limit = count;
-    if (limit > SCRIPT_MENU_MAX) limit = SCRIPT_MENU_MAX;
-    for (i = 0; i < limit; i++) {
-        string btn = llList2String(cached_scripts, i * 2 + 1);
-        if (llStringLength(btn) > 24) btn = llGetSubString(btn, 0, 23);
-        buttons += [btn];
-    }
-    buttons += ["Cancel"];
-
-    if (menu_listen_handle) llListenRemove(menu_listen_handle);
-    menu_listen_handle = llListen(menu_channel, "", llGetOwner(), "");
-    llDialog(llGetOwner(), "MMO Scripts — choose an action:", buttons, menu_channel);
-}
-
-sendCommand(string script_id) {
-    if (hmac_secret == "") {
-        llOwnerSay("MMO HUD: no command token yet — reconnecting to HA.");
-        registerWithHA();
-        return;
-    }
-    // Capture timestamp before the mandatory 10-second llHMAC delay.
-    // HA allows a 60-second replay window so the 10s wait is well within budget.
-    integer ts    = llGetUnixTime();
-    string  canon = (string)ts + ".script." + script_id;
-    llOwnerSay("MMO HUD: signing... (~10s)");
-    string sig = llHMAC(hmac_secret, canon, "sha256");
-    string payload = llList2Json(JSON_OBJECT, [
-        "world",  "secondlife",
-        "type",   "hud_command",
-        "avatar", llKey2Name(llGetOwner()),
-        "script", script_id,
-        "ts",     ts,
-        "sig",    sig
-    ]);
-    commandRequestKey = llHTTPRequest(ha_url,
-        [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
-}
-
 showHelp() {
     llOwnerSay("MMO HUD — commands on channel " + (string)CMD_CHANNEL
         + " (use /" + (string)CMD_CHANNEL + " <command>):");
@@ -197,37 +128,26 @@ default {
             llSetText("MMO HUD\nWear me — do not rez in world", <1.0, 0.3, 0.3>, 1.0);
             return;
         }
-        llSetText("", <0,0,0>, 0.0);  // clear any leftover text when worn
+        llSetText("", <0,0,0>, 0.0);
 
         is_ready             = FALSE;
         url_request_inflight = FALSE;
         url_retry_s          = 2.0;
         regRequestKey        = NULL_KEY;
-        scriptListRequestKey = NULL_KEY;
-        commandRequestKey    = NULL_KEY;
-        cached_scripts       = [];
 
-        // Stable per-session menu channel derived from owner UUID
-        menu_channel = (integer)("0x" + llGetSubString((string)llGetOwner(), 0, 7))
-                       | 0x80000000;
-        if (menu_listen_handle) llListenRemove(menu_listen_handle);
-        menu_listen_handle = 0;
+        // Restore persisted settings
+        ha_url             = llLinksetDataRead(LD_HA_URL);
+        trusted_bridge_key = llLinksetDataRead(LD_BRIDGE_KEY);
 
-        // Restore HA URL
-        ha_url = llLinksetDataRead(LD_HA_URL);
         if (ha_url != "")
             llOwnerSay("MMO HUD: loaded HA URL from storage.");
         else
             llOwnerSay("MMO HUD: no HA URL — touch your bridge object to get one automatically.");
 
-        // Restore trusted bridge key, HMAC secret, and poll interval
-        trusted_bridge_key = llLinksetDataRead(LD_BRIDGE_KEY);
-        hmac_secret        = llLinksetDataRead(LD_HMAC_SECRET);
-
         string stored_poll = llLinksetDataRead(LD_POLL_INTERVAL);
         if (stored_poll != "") poll_interval = (float)stored_poll;
 
-        // Listen for owner commands
+        // Listen for owner chat commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
 
@@ -243,9 +163,8 @@ default {
             llOwnerSay("MMO HUD: not connected to HA yet.");
             return;
         }
-        // Always fetch a fresh list on touch so newly-labelled scripts appear immediately
-        llOwnerSay("MMO HUD: fetching scripts...");
-        requestScriptList();
+        // Delegate menu handling entirely to the command script
+        llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY);
     }
 
     listen(integer channel, string name, key id, string msg) {
@@ -254,19 +173,15 @@ default {
             string type = llJsonGetValue(msg, ["type"]);
             if (type != "url_update") return;
 
-            string new_ha_url     = llJsonGetValue(msg, ["ha_url"]);
-
+            string new_ha_url = llJsonGetValue(msg, ["ha_url"]);
             if (new_ha_url == JSON_INVALID || new_ha_url == "") return;
 
-            // Security: reject if sender doesn't match our trusted bridge
-            // (trusted_bridge_key == "" means we haven't paired yet — accept and store)
             if (trusted_bridge_key != "" && (string)id != trusted_bridge_key) {
                 llOwnerSay("MMO HUD: ignored URL update from untrusted object "
                     + (string)id + ". Use /6 setbridge to re-pair.");
                 return;
             }
 
-            // Only announce if the URL actually changed
             if (new_ha_url != ha_url)
                 llOwnerSay("MMO HUD: HA URL updated from bridge (" + name + ").");
 
@@ -282,28 +197,6 @@ default {
             return;
         }
 
-        // ── Script menu dialog response ───────────────────────────────────────
-        if (channel == menu_channel) {
-            llListenRemove(menu_listen_handle);
-            menu_listen_handle = 0;
-            if (msg == "Cancel") return;
-
-            // Match the button label back to a script id
-            integer i;
-            integer len = llGetListLength(cached_scripts);
-            for (i = 0; i < len; i += 2) {
-                string btn_label = llList2String(cached_scripts, i + 1);
-                if (llStringLength(btn_label) > 24)
-                    btn_label = llGetSubString(btn_label, 0, 23);
-                if (btn_label == msg) {
-                    sendCommand(llList2String(cached_scripts, i));
-                    return;
-                }
-            }
-            llOwnerSay("MMO HUD: unknown selection '" + msg + "'.");
-            return;
-        }
-
         // ── Owner chat commands ───────────────────────────────────────────────
         msg = llStringTrim(msg, STRING_TRIM);
 
@@ -315,7 +208,6 @@ default {
             }
             ha_url = new_url;
             llLinksetDataWrite(LD_HA_URL, ha_url);
-            // Manual seturl — clear bridge key so we don't block future auto-updates
             trusted_bridge_key = "";
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llOwnerSay("MMO HUD: HA URL saved (bridge pairing cleared).");
@@ -340,11 +232,11 @@ default {
         } else if (msg == "status") {
             llOwnerSay("── MMO HUD status ──");
             string url_display    = ha_url;
-            if (url_display == "") url_display = "(not set)";
+            if (url_display    == "") url_display    = "(not set)";
             string bridge_display = trusted_bridge_key;
             if (bridge_display == "") bridge_display = "(none — will accept next bridge)";
             string secret_display = "(not set)";
-            if (hmac_secret != "") secret_display = "(set)";
+            if (llLinksetDataRead(LD_HMAC_SECRET) != "") secret_display = "(set)";
             llOwnerSay("HA URL      : " + url_display);
             llOwnerSay("Bridge key  : " + bridge_display);
             if (is_ready)
@@ -352,7 +244,6 @@ default {
             else
                 llOwnerSay("Script URL  : (not ready)");
             llOwnerSay("HMAC secret : " + secret_display);
-            llOwnerSay("Scripts     : " + (string)(llGetListLength(cached_scripts) / 2) + " cached");
             llOwnerSay("Poll every  : " + (string)((integer)poll_interval) + "s");
 
         } else if (msg == "push") {
@@ -384,17 +275,14 @@ default {
                 url_retry_s          = 2.0;
                 registerWithHA();
                 llSetTimerEvent(poll_interval);
-                // Ask bridge for latest URL in case it changed while we were offline
                 requestUrlFromBridge();
                 return;
             }
         }
-        // HUD is send-only — no commands expected from HA
         llHTTPResponse(id, 200, "OK");
     }
 
     http_response(key req, integer status, list meta, string body) {
-        // ── Registration response — extract HMAC secret ───────────────────────
         if (req == regRequestKey) {
             regRequestKey = NULL_KEY;
             if (status != 200) {
@@ -402,54 +290,14 @@ default {
                     + "). Check URL — use /6 setbridge to re-pair.");
                 return;
             }
-            // HA returns {"status":"ok","hmac_secret":"..."} on avatar_state payloads
+            // HA returns {"status":"ok","hmac_secret":"..."} on avatar_state payloads.
+            // Store it into linkset data so sl_hud_commands.lsl can read it directly.
             string new_secret = llJsonGetValue(body, ["hmac_secret"]);
-            if (new_secret != JSON_INVALID && new_secret != "" && new_secret != hmac_secret) {
-                hmac_secret = new_secret;
-                llLinksetDataWrite(LD_HMAC_SECRET, hmac_secret);
+            if (new_secret != JSON_INVALID && new_secret != "") {
+                string current = llLinksetDataRead(LD_HMAC_SECRET);
+                if (new_secret != current)
+                    llLinksetDataWrite(LD_HMAC_SECRET, new_secret);
             }
-            return;
-        }
-
-        // ── Script list response ──────────────────────────────────────────────
-        if (req == scriptListRequestKey) {
-            scriptListRequestKey = NULL_KEY;
-            if (status != 200) {
-                llOwnerSay("MMO HUD: failed to fetch script list (HTTP "
-                    + (string)status + ").");
-                return;
-            }
-            // Parse [{"id":"...","name":"..."}, ...] into cached_scripts flat list
-            list raw = llJson2List(llJsonGetValue(body, ["scripts"]));
-            cached_scripts = [];
-            integer i;
-            integer len = llGetListLength(raw);
-            for (i = 0; i < len; i++) {
-                string entry = llList2String(raw, i);
-                string sid   = llJsonGetValue(entry, ["id"]);
-                string sname = llJsonGetValue(entry, ["name"]);
-                if (sid != JSON_INVALID && sid != "")
-                    cached_scripts += [sid, sname];
-            }
-            if (llGetListLength(cached_scripts) == 0) {
-                llOwnerSay("MMO HUD: no scripts available. In HA, label a script 'MMO Script' to add it here.");
-                return;
-            }
-            showScriptMenu();
-            return;
-        }
-
-        // ── Command response ──────────────────────────────────────────────────
-        if (req == commandRequestKey) {
-            commandRequestKey = NULL_KEY;
-            if (status == 200) {
-                llOwnerSay("MMO HUD: done.");
-            } else if (status == 403) {
-                llOwnerSay("MMO HUD: command rejected — try re-attaching the HUD.");
-            } else {
-                llOwnerSay("MMO HUD: command failed (HTTP " + (string)status + ").");
-            }
-            return;
         }
     }
 
@@ -472,18 +320,14 @@ default {
                 llReleaseURL(my_url);
                 my_url = "";
             }
-            url_retry_s    = 2.0;
-            cached_scripts = [];   // stale after region swap; refreshed on next touch
+            url_retry_s = 2.0;
             doRequestUrl();
             llSetTimerEvent(url_retry_s);
-            // Once we have a URL again, we'll ask the bridge for an update
-            // via requestUrlFromBridge() called in URL_REQUEST_GRANTED
         }
     }
 
     attach(key av) {
         if (av != NULL_KEY) {
-            // Re-attached — full reset
             llResetScript();
         }
     }
