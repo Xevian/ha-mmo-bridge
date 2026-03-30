@@ -22,6 +22,12 @@ import time
 DOMAIN = "mmo_bridge"
 SIGNAL_PRESENCE_UPDATED = f"{DOMAIN}_presence_updated"
 SIGNAL_NODE_UPDATED     = f"{DOMAIN}_node_updated"
+
+# Protocol version — bump when making breaking changes to the webhook payload
+# schema. LSL scripts include this in every payload; HA checks it and rejects
+# (HTTP 400) anything below MIN_PROTOCOL_VERSION.
+PROTOCOL_VERSION     = 1
+MIN_PROTOCOL_VERSION = 1  # oldest script version still accepted
 # HA Store version — always 1. We track our own schema version inside the data
 # dict (key "version") to avoid HA's built-in migration pipeline.
 _HA_STORE_VERSION = 1
@@ -94,6 +100,26 @@ async def async_setup(hass, config):
         world        = data.get("world", "secondlife")
         payload_type = data.get("type", "")
 
+        # ── Protocol version check ────────────────────────────────────────────
+        script_proto = data.get("protocol")
+        if script_proto is not None:
+            script_proto = int(script_proto)
+            if script_proto < MIN_PROTOCOL_VERSION:
+                _LOGGER.warning(
+                    "Rejected payload from script protocol v%d (minimum is v%d)",
+                    script_proto, MIN_PROTOCOL_VERSION,
+                )
+                return web.json_response(
+                    {"error": "protocol_outdated", "current": PROTOCOL_VERSION},
+                    status=400,
+                )
+            if script_proto > PROTOCOL_VERSION:
+                _LOGGER.warning(
+                    "Script is running protocol v%d, newer than HA's v%d — "
+                    "consider updating the integration",
+                    script_proto, PROTOCOL_VERSION,
+                )
+
         # ── HUD: fetch labelled script list ───────────────────────────────────
         if payload_type == "hud_list_scripts":
             avatar = data.get("avatar", "")
@@ -103,7 +129,7 @@ async def async_setup(hass, config):
             _LOGGER.debug(
                 "hud_list_scripts: returning %d script(s) for '%s'", len(scripts), avatar
             )
-            return web.json_response({"scripts": scripts})
+            return web.json_response({"protocol": PROTOCOL_VERSION, "scripts": scripts})
 
         # ── HUD: execute a labelled script ────────────────────────────────────
         if payload_type == "hud_command":
@@ -147,7 +173,7 @@ async def async_setup(hass, config):
                 _LOGGER.error("hud_command: failed to run '%s': %s", script_id, exc)
                 return web.Response(status=500)
 
-            return web.json_response({"status": "ok"})
+            return web.json_response({"protocol": PROTOCOL_VERSION, "status": "ok"})
 
         # ── Standard node/presence/state processing ───────────────────────────
         raw_node_id  = data.get("node_id", "")
@@ -283,6 +309,7 @@ async def async_setup(hass, config):
                     )
 
                 return web.json_response({
+                    "protocol":    PROTOCOL_VERSION,
                     "status":      "ok",
                     "hmac_secret": secrets_map[avatar_slug],
                 })

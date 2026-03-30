@@ -11,6 +11,9 @@
 // Setup: /5 seturl <webhook URL including ?token=...>
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Protocol version — bump when making breaking payload changes ──────────────
+integer PROTOCOL_VERSION = 1;
+
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmostats_ha_url";
 string LD_POLL_INTERVAL = "mmostats_poll_interval";
@@ -93,6 +96,7 @@ string buildWorldData() {
 
 string buildPayload() {
     list fields = [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -125,6 +129,7 @@ scheduleUrlRetry() {
 registerWithHA() {
     if (!is_ready || ha_url == "") return;
     string payload = llList2Json(JSON_OBJECT, [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -304,8 +309,20 @@ default {
     http_response(key req, integer status, list meta, string body) {
         if (req == regRequestKey) {
             if (status == 200) {
+                string ha_proto = llJsonGetValue(body, ["protocol"]);
+                if (ha_proto != JSON_INVALID && (integer)ha_proto > PROTOCOL_VERSION)
+                    llOwnerSay("MMO Stats: HA is running protocol v" + ha_proto
+                        + " (this script is v" + (string)PROTOCOL_VERSION
+                        + "). Consider updating your scripts.");
                 llOwnerSay("MMO Stats: registered with HA. Sending initial stats...");
                 sendStatsNow();
+            } else if (status == 400) {
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == "protocol_outdated")
+                    llOwnerSay("MMO Stats: script protocol v" + (string)PROTOCOL_VERSION
+                        + " is too old for this HA installation. Please update your scripts.");
+                else
+                    llOwnerSay("MMO Stats: HA registration failed (HTTP 400). Check URL and token.");
             } else {
                 llOwnerSay("MMO Stats: HA registration failed (HTTP " + (string)status + "). Check URL and token.");
             }

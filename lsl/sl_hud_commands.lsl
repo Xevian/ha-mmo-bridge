@@ -16,6 +16,9 @@
 // MSG constants MUST match sl_avatar_hud.lsl
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Protocol version — MUST match sl_avatar_hud.lsl ──────────────────────────
+integer PROTOCOL_VERSION = 1;
+
 // ── Linkset data keys (shared with sl_avatar_hud.lsl — read-only here) ────────
 string LD_HA_URL      = "mmohud_ha_url";
 string LD_HMAC_SECRET = "mmohud_hmac_secret";
@@ -41,9 +44,10 @@ requestScriptList() {
         return;
     }
     string payload = llList2Json(JSON_OBJECT, [
-        "world",  "secondlife",
-        "type",   "hud_list_scripts",
-        "avatar", llKey2Name(llGetOwner())
+        "protocol", PROTOCOL_VERSION,
+        "world",    "secondlife",
+        "type",     "hud_list_scripts",
+        "avatar",   llKey2Name(llGetOwner())
     ]);
     scriptListRequestKey = llHTTPRequest(ha_url,
         [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
@@ -94,9 +98,10 @@ sendCommand(string script_id) {
     string sig = llHMAC(hmac_secret, canon, "sha256");  // ← 10s freeze (this script only)
 
     string payload = llList2Json(JSON_OBJECT, [
-        "world",  "secondlife",
-        "type",   "hud_command",
-        "avatar", llKey2Name(llGetOwner()),
+        "protocol", PROTOCOL_VERSION,
+        "world",    "secondlife",
+        "type",     "hud_command",
+        "avatar",   llKey2Name(llGetOwner()),
         "script", script_id,
         "ts",     ts,
         "sig",    sig

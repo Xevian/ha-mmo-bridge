@@ -1,4 +1,7 @@
 
+// ── Protocol version — bump when making breaking payload changes ──────────────
+integer PROTOCOL_VERSION = 1;
+
 // ── Linkset data keys ───────────────────────────────────────────────────────
 string LD_HA_URL        = "mmo_ha_url";
 string LD_REGISTERED    = "mmo_registered";
@@ -115,6 +118,7 @@ saveRegistered() {
 registerWithHA() {
     if (!is_ready || ha_url == "") return;
     string payload = llList2Json(JSON_OBJECT, [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -129,6 +133,7 @@ string buildOnlineJson(list names) {
     string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display"]);
     string athome = llList2Json(JSON_ARRAY, buildAtHome());
     list fields = [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -484,8 +489,21 @@ default {
     http_response(key req, integer status, list meta, string body) {
         if (req == regRequestKey) {
             if (status == 200) {
+                // Warn if HA is running a newer protocol than this script knows about
+                string ha_proto = llJsonGetValue(body, ["protocol"]);
+                if (ha_proto != JSON_INVALID && (integer)ha_proto > PROTOCOL_VERSION)
+                    llOwnerSay("MMO Bridge: HA is running protocol v" + ha_proto
+                        + " (this script is v" + (string)PROTOCOL_VERSION
+                        + "). Consider updating your scripts.");
                 llOwnerSay("MMO Bridge: registered with HA. Sending initial presence report...");
                 sendPresenceNow();
+            } else if (status == 400) {
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == "protocol_outdated")
+                    llOwnerSay("MMO Bridge: script protocol v" + (string)PROTOCOL_VERSION
+                        + " is too old for this HA installation. Please update your scripts.");
+                else
+                    llOwnerSay("MMO Bridge: HA registration failed (HTTP 400). Check URL and token.");
             } else {
                 llOwnerSay("MMO Bridge: HA registration failed (HTTP " + (string)status + "). Check URL and token.");
             }

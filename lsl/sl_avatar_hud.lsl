@@ -19,6 +19,9 @@
 // To trust a new bridge: /6 setbridge  (clears the stored key)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Protocol version — bump when making breaking payload changes ──────────────
+integer PROTOCOL_VERSION = 1;
+
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmohud_ha_url";
 string LD_BRIDGE_KEY    = "mmohud_bridge_key";   // trusted bridge object UUID
@@ -67,6 +70,7 @@ string buildPayload() {
     if (info & AGENT_BUSY) busy = JSON_TRUE;
 
     return llList2Json(JSON_OBJECT, [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "capabilities", llList2Json(JSON_ARRAY, ["avatar_state"]),
         "avatar",       llKey2Name(llGetOwner()),
@@ -338,11 +342,27 @@ default {
     http_response(key req, integer status, list meta, string body) {
         if (req == regRequestKey) {
             regRequestKey = NULL_KEY;
+            if (status == 400) {
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == "protocol_outdated")
+                    llOwnerSay("MMO HUD: script protocol v" + (string)PROTOCOL_VERSION
+                        + " is too old for this HA installation. Please update your HUD scripts.");
+                else
+                    llOwnerSay("MMO HUD: HA rejected state push (HTTP 400). Check URL.");
+                return;
+            }
             if (status != 200) {
                 llOwnerSay("MMO HUD: HA rejected state push (HTTP " + (string)status
                     + "). Check URL — use /6 setbridge to re-pair.");
                 return;
             }
+            // Warn if HA is running a newer protocol than this script knows about
+            string ha_proto = llJsonGetValue(body, ["protocol"]);
+            if (ha_proto != JSON_INVALID && (integer)ha_proto > PROTOCOL_VERSION)
+                llOwnerSay("MMO HUD: HA is running protocol v" + ha_proto
+                    + " (this script is v" + (string)PROTOCOL_VERSION
+                    + "). Consider updating your HUD scripts.");
+
             // HA returns {"status":"ok","hmac_secret":"..."} on avatar_state payloads.
             // Store it into linkset data so sl_hud_commands.lsl can read it directly.
             string new_secret = llJsonGetValue(body, ["hmac_secret"]);
