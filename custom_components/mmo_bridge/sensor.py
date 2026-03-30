@@ -1,6 +1,5 @@
 
-from homeassistant.components.sensor import SensorStateClass
-from homeassistant.helpers.entity import Entity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
@@ -11,7 +10,7 @@ from . import DOMAIN, SIGNAL_PRESENCE_UPDATED, SIGNAL_NODE_UPDATED
 _LOGGER = logging.getLogger(__name__)
 
 # Well-known world_data keys with display metadata.
-# key -> (name_suffix, unit_of_measurement, icon, cast_fn)
+# key -> (name_suffix, native_unit_of_measurement, icon, cast_fn)
 # Any key that arrives in world_data but is NOT in this dict and NOT in
 # WORLD_DATA_STRING_KEYS will get a generic sensor with sensible defaults.
 WORLD_DATA_SENSORS = {
@@ -55,8 +54,13 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             _ensure_node_sensors(hass, world, node_id)
 
 
-class MMOBridgeSensor(Entity):
+class MMOBridgeSensor(SensorEntity):
     """Sensor tracking how many avatars are online in a given world."""
+
+    _attr_icon                 = "mdi:account-multiple"
+    _attr_state_class          = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "avatars"
+    _attr_should_poll          = False
 
     def __init__(self, hass, world):
         self._hass   = hass
@@ -72,20 +76,8 @@ class MMOBridgeSensor(Entity):
         return f"{DOMAIN}_{self._world}_online"
 
     @property
-    def state(self):
+    def native_value(self):
         return len(self._online)
-
-    @property
-    def unit_of_measurement(self):
-        return "avatars"
-
-    @property
-    def state_class(self):
-        return SensorStateClass.MEASUREMENT
-
-    @property
-    def icon(self):
-        return "mdi:account-multiple"
 
     @property
     def extra_state_attributes(self):
@@ -93,10 +85,6 @@ class MMOBridgeSensor(Entity):
             "world":  self._world,
             "online": self._online,
         }
-
-    @property
-    def should_poll(self):
-        return False
 
     async def async_added_to_hass(self):
         self.async_on_remove(
@@ -113,8 +101,11 @@ class MMOBridgeSensor(Entity):
         self.async_write_ha_state()
 
 
-class MMOBridgeWorldDataSensor(Entity):
+class MMOBridgeWorldDataSensor(SensorEntity):
     """Sensor exposing a single numeric world_data field from a specific node."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_should_poll = False
 
     def __init__(self, hass, world, node_id, key, name_suffix, unit, icon, cast_fn):
         self._hass        = hass
@@ -122,10 +113,10 @@ class MMOBridgeWorldDataSensor(Entity):
         self._node_id     = node_id
         self._key         = key
         self._name_suffix = name_suffix
-        self._unit        = unit
-        self._icon        = icon
         self._cast_fn     = cast_fn
-        self._state       = None
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon                        = icon
+        self._native_value                     = None
 
     @property
     def name(self):
@@ -137,20 +128,8 @@ class MMOBridgeWorldDataSensor(Entity):
         return f"{DOMAIN}_{self._world}_{self._node_id}_{self._key}"
 
     @property
-    def state(self):
-        return self._state
-
-    @property
-    def unit_of_measurement(self):
-        return self._unit
-
-    @property
-    def state_class(self):
-        return SensorStateClass.MEASUREMENT
-
-    @property
-    def icon(self):
-        return self._icon
+    def native_value(self):
+        return self._native_value
 
     @property
     def extra_state_attributes(self):
@@ -158,10 +137,6 @@ class MMOBridgeWorldDataSensor(Entity):
             "world":   self._world,
             "node_id": self._node_id,
         }
-
-    @property
-    def should_poll(self):
-        return False
 
     async def async_added_to_hass(self):
         self.async_on_remove(
@@ -183,7 +158,7 @@ class MMOBridgeWorldDataSensor(Entity):
         )
         if raw is not None:
             try:
-                self._state = self._cast_fn(raw)
+                self._native_value = self._cast_fn(raw)
             except (ValueError, TypeError):
-                self._state = None
+                self._native_value = None
         self.async_write_ha_state()
