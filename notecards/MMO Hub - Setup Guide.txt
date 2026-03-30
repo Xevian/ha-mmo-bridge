@@ -28,12 +28,12 @@ You should have received an MMO HUD object in
 your inventory. Wear it as an attachment.
 
 After wearing it, touch this Hub object once —
-the Hub will send your Home Assistant URL to
-the HUD automatically. You only need to do this
-once (or after a HUD reset).
+the Hub will send the connection URL to the HUD
+automatically. You only need to do this once
+(or after a HUD reset).
 
 See the "MMO HUD - Setup Guide" notecard inside
-your HUD for HUD-specific instructions.
+your HUD for further instructions.
 
 ───────────────────────────────────────────────
   WHAT GETS TRACKED
@@ -44,15 +44,12 @@ your HUD for HUD-specific instructions.
   • Region and parcel name (via HUD)
   • AFK and busy flags (via HUD)
 
-Your position is sent but only used for the
-device tracker — it's not stored or logged.
-
 ───────────────────────────────────────────────
   RECEIVING MESSAGES
 ───────────────────────────────────────────────
 
 The owner can send you IMs from Home Assistant
-automations. They'll arrive as normal IMs from
+automations. They arrive as normal IMs from
 this object and look like:
 
   ====================
@@ -60,21 +57,46 @@ this object and look like:
   ====================
 
 ───────────────────────────────────────────────
-  HA SCRIPTS (the fun bit!)
+  OWNER COMMANDS  (channel /5)
 ───────────────────────────────────────────────
 
-The owner can set up Home Assistant scripts that
-you can trigger from your HUD — things like
-toggling lights, activating scenes, or any other
-HA automation.
+  /5 seturl <url>    Save HA webhook URL
+  /5 setpoll <sec>   Presence poll interval
+                     (min 10s, default 60s)
+  /5 status          HA URL, script URL,
+                     registered avatars
+  /5 list            List registered avatars
+  /5 remove <name>   Remove an avatar by name
+  /5 clearusers      Remove all avatars
+  /5 push            Force a presence update
+  /5 hardreset       Clear all stored data
+                     (use when moving to new HA)
+  /5 help            Show this list in chat
 
-Just ask the owner to label a HA script with
-"MMO Script" and it will appear in your HUD
-touch menu automatically.
+───────────────────────────────────────────────
+  MMO NODE — PARCEL STATS
+───────────────────────────────────────────────
 
-Want something private just for you? Ask the
-owner to label a script "MMO - Your Name" and
-only your HUD will see it.
+The MMO Node is a separate optional object that
+pushes live parcel and region stats to Home
+Assistant as graphable sensors:
+
+  • Region FPS and time dilation
+  • Number of avatars on the parcel
+  • Number of avatars in the region
+  • Sim channel, version, and start time
+
+Rez the MMO Node object somewhere on the parcel
+that stays rezzed permanently (a skybox or
+ground platform works well). Set it up the same
+way as the Hub:
+
+  /5 seturl <your webhook URL>
+
+It will register with HA automatically and
+start pushing stats on its own poll cycle.
+The Node and the Hub are independent — you can
+have one without the other.
 
 ───────────────────────────────────────────────
   NEED TO UNREGISTER?
@@ -92,5 +114,5 @@ touching the Hub with your group tag active.
 HUD not connecting? Touch the Hub while wearing
 the HUD to push the URL to it again.
 
-Contact the owner if you continue to have
+Contact the owner if you continue having
 trouble.
