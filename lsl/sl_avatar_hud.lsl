@@ -54,13 +54,20 @@ string buildPayload() {
     vector  pos    = llGetPos();
     list    parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
 
+    string afk      = JSON_FALSE;
+    string busy     = JSON_FALSE;
+    string in_voice = JSON_FALSE;
+    if (info & AGENT_AWAY)    afk      = JSON_TRUE;
+    if (info & AGENT_BUSY)    busy     = JSON_TRUE;
+    if (info & AGENT_IN_VOICE) in_voice = JSON_TRUE;
+
     return llList2Json(JSON_OBJECT, [
         "world",        "secondlife",
         "capabilities", llList2Json(JSON_ARRAY, ["avatar_state"]),
         "avatar",       llKey2Name(llGetOwner()),
-        "afk",          (info & AGENT_AWAY)    ? JSON_TRUE : JSON_FALSE,
-        "busy",         (info & AGENT_BUSY)     ? JSON_TRUE : JSON_FALSE,
-        "in_voice",     (info & AGENT_IN_VOICE) ? JSON_TRUE : JSON_FALSE,
+        "afk",          afk,
+        "busy",         busy,
+        "in_voice",     in_voice,
         "region",       llGetRegionName(),
         "parcel",       llList2String(parcel, 0),
         "pos",          (string)pos
@@ -195,7 +202,7 @@ default {
         if (llGetSubString(msg, 0, 6) == "seturl ") {
             string new_url = llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM);
             if (new_url == "") {
-                llOwnerSay("Usage: /5 seturl <full webhook URL including ?token=...>");
+                llOwnerSay("Usage: /6 seturl <full webhook URL including ?token=...>");
                 return;
             }
             ha_url = new_url;
@@ -225,8 +232,12 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO HUD status ──");
-            llOwnerSay("HA URL      : " + (ha_url != "" ? ha_url : "(not set)"));
-            llOwnerSay("Bridge key  : " + (trusted_bridge_key != "" ? trusted_bridge_key : "(none — will accept next bridge)"));
+            string url_display    = ha_url;
+            if (url_display == "") url_display = "(not set)";
+            string bridge_display = trusted_bridge_key;
+            if (bridge_display == "") bridge_display = "(none — will accept next bridge)";
+            llOwnerSay("HA URL      : " + url_display);
+            llOwnerSay("Bridge key  : " + bridge_display);
             if (is_ready)
                 llOwnerSay("Script URL  : " + my_url);
             else
