@@ -181,6 +181,14 @@ default {
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
 
+        // Name the object after its parcel so it's identifiable in-world
+        list   parcel      = llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]);
+        string parcel_name = llList2String(parcel, 0);
+        if (parcel_name != "")
+            llSetObjectName("MMO Node - " + parcel_name);
+        else
+            llSetObjectName("MMO Node");
+
         updateHoverText();
         llOwnerSay("MMO Stats: starting, requesting HTTP-in URL...");
         doRequestUrl();

@@ -2,29 +2,32 @@
 ║         MMO Hub — Setup Guide               ║
 ╚══════════════════════════════════════════════╝
 
-This object connects your Second Life presence
+The MMO Hub connects your Second Life presence
 to Home Assistant so the owner can see when
 you're online, send you messages in-world, and
 run automations based on your status.
 
 ───────────────────────────────────────────────
-  STEP 1 — Rez the Hub
+  STEP 1 — Rez the MMO Hub
 ───────────────────────────────────────────────
 
-Rez this object on your home parcel. The Hub
+Rez the MMO Hub object on your home parcel. It
 should stay rezzed permanently so Home Assistant
 always has an active connection.
 
-Make sure the object's group is set to the group
-you want to use for registration — only members
-with that group tag active can register.
+Make sure the MMO Hub's group is set to the
+group you want to use for registration — only
+members with that group tag active can register.
+
+The MMO Hub will rename itself to reflect the
+parcel it's on (e.g. "MMO Hub - Xev Getaway").
 
 ───────────────────────────────────────────────
   STEP 2 — Register
 ───────────────────────────────────────────────
 
 Make sure your group tag is active, then TOUCH
-this object.
+the MMO Hub.
 
 You'll receive an IM confirming registration.
 That's it — you're connected!
@@ -47,7 +50,7 @@ your HUD URL will be refreshed automatically.
 
 The owner can send you IMs from Home Assistant
 automations. They arrive as normal IMs from
-this object and look like:
+the MMO Hub and look like:
 
   ====================
   == Dinner's ready!
@@ -83,17 +86,17 @@ Assistant as graphable sensors:
   • Number of avatars in the region
   • Sim channel, version, and start time
 
-Rez the MMO Node object somewhere on the parcel
-that stays rezzed permanently (a skybox or
-ground platform works well). Set it up the same
-way as the Hub:
+Rez the MMO Node somewhere on the parcel that
+stays rezzed permanently (a skybox or ground
+platform works well). Set it up the same way
+as the MMO Hub:
 
   /5 seturl <your webhook URL>
 
-It will register with HA automatically and
-start pushing stats on its own poll cycle.
-The Node and the Hub are independent — you can
-have one without the other.
+It registers with HA automatically and starts
+pushing stats on its own poll cycle. The MMO
+Node and MMO Hub are independent — you can have
+one without the other.
 
 ───────────────────────────────────────────────
   NEED TO UNREGISTER?
@@ -106,7 +109,7 @@ Ask the owner to run:  /5 remove Your Name
 ───────────────────────────────────────────────
 
 Not receiving IMs? Make sure you registered by
-touching the Hub with your group tag active.
+touching the MMO Hub with your group tag active.
 
 Contact the owner if you continue having
 trouble.

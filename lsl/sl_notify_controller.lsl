@@ -264,6 +264,14 @@ default {
         if (hud_listen_handle) llListenRemove(hud_listen_handle);
         hud_listen_handle = llListen(BRIDGE_HUD_CHANNEL, "", NULL_KEY, "");
 
+        // Name the object after its parcel so it's identifiable in-world
+        list   parcel      = llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]);
+        string parcel_name = llList2String(parcel, 0);
+        if (parcel_name != "")
+            llSetObjectName("MMO Hub - " + parcel_name);
+        else
+            llSetObjectName("MMO Hub");
+
         updateHoverText();
         llOwnerSay("MMO Bridge: starting, requesting HTTP-in URL...");
         doRequestUrl();
