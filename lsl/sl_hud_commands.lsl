@@ -208,7 +208,12 @@ default {
     }
 
     changed(integer c) {
-        if (c & (CHANGED_OWNER | CHANGED_INVENTORY)) {
+        if (c & CHANGED_OWNER) {
+            // Linkset data is cleared by sl_avatar_hud.lsl on owner change —
+            // just reset this companion script
+            llResetScript();
+        }
+        if (c & CHANGED_INVENTORY) {
             llResetScript();
         }
         if (c & (CHANGED_REGION | CHANGED_REGION_START | CHANGED_TELEPORT)) {

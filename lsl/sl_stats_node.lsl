@@ -339,7 +339,13 @@ default {
     }
 
     changed(integer c) {
-        if (c & (CHANGED_OWNER | CHANGED_INVENTORY)) {
+        if (c & CHANGED_OWNER) {
+            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llResetScript();
+        }
+        if (c & CHANGED_INVENTORY) {
             llResetScript();
         }
         if (c & (CHANGED_REGION | CHANGED_REGION_START | CHANGED_TELEPORT)) {
