@@ -29,7 +29,8 @@ integer menu_listen_handle;
 list    cached_scripts;        // [id, name, id, name, ...]
 key     scriptListRequestKey;
 key     commandRequestKey;
-integer SCRIPT_MENU_MAX = 11;  // max script buttons (1 slot reserved for Cancel)
+integer SCRIPT_MENU_MAX  = 11;  // max script buttons (1 slot reserved for Cancel)
+float   MENU_TIMEOUT_S   = 30.0; // auto-close listen if user ignores the dialog
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ showScriptMenu() {
     if (menu_listen_handle) llListenRemove(menu_listen_handle);
     menu_listen_handle = llListen(menu_channel, "", llGetOwner(), "");
     llDialog(llGetOwner(), "MMO Scripts — choose an action:", buttons, menu_channel);
+    llSetTimerEvent(MENU_TIMEOUT_S);  // clean up if user ignores the dialog
 }
 
 sendCommand(string script_id) {
@@ -130,6 +132,7 @@ default {
 
         llListenRemove(menu_listen_handle);
         menu_listen_handle = 0;
+        llSetTimerEvent(0.0);  // cancel timeout
         if (msg == "Cancel") return;
 
         // Match the button label back to a script id
@@ -187,6 +190,15 @@ default {
                 llOwnerSay("MMO HUD: command failed (HTTP " + (string)status + ").");
             }
             return;
+        }
+    }
+
+    timer() {
+        // Menu dialog timed out — user ignored it. Clean up the listen.
+        llSetTimerEvent(0.0);
+        if (menu_listen_handle) {
+            llListenRemove(menu_listen_handle);
+            menu_listen_handle = 0;
         }
     }
 
