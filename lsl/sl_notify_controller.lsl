@@ -201,6 +201,11 @@ notifyHuds() {
     }
 }
 
+string formatMessage(string msg) {
+    string bar = "====================";
+    return "\n" + bar + "\n== " + msg + "\n" + bar;
+}
+
 showHelp() {
     llOwnerSay("MMO Bridge — chat commands on channel " + (string)CMD_CHANNEL + ":");
     llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
@@ -431,7 +436,7 @@ default {
                 integer i;
                 for (i = 0; i < len; i += 2) {
                     key av = (key)llList2String(registered, i);
-                    llInstantMessage(av, msg);
+                    llInstantMessage(av, formatMessage(msg));
                 }
                 llHTTPResponse(id, 200, "OK");
                 return;
@@ -448,7 +453,7 @@ default {
             }
             @found;
             if (target != NULL_KEY) {
-                llInstantMessage(target, msg);
+                llInstantMessage(target, formatMessage(msg));
                 llHTTPResponse(id, 200, "OK");
                 return;
             }
