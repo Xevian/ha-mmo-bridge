@@ -49,29 +49,6 @@ string computeAvatarSlug() {
     return llDumpList2String(parts, "_");
 }
 
-updateHoverText() {
-    string line1;
-    string line2;
-    vector color;
-
-    if (ha_url == "") {
-        line1 = "MMO HUD";
-        line2 = "No HA URL — touch bridge or /5 seturl";
-        color = <1.0, 0.3, 0.3>;
-    } else if (!is_ready) {
-        line1 = "MMO HUD";
-        line2 = "Connecting...";
-        color = <1.0, 0.7, 0.0>;
-    } else {
-        line1 = "MMO HUD";
-        line2 = "Active";
-        color = <0.3, 1.0, 0.3>;
-    }
-
-    // Attached HUDs often have text hidden, but set it for worn-object use too
-    llSetText(line1 + "\n" + line2, color, 1.0);
-}
-
 string buildPayload() {
     integer info   = llGetAgentInfo(llGetOwner());
     vector  pos    = llGetPos();
@@ -169,7 +146,7 @@ default {
         if (hud_listen_handle) llListenRemove(hud_listen_handle);
         hud_listen_handle = llListen(BRIDGE_HUD_CHANNEL, "", NULL_KEY, "");
 
-        updateHoverText();
+
         doRequestUrl();
     }
 
@@ -197,7 +174,7 @@ default {
             llLinksetDataWrite(LD_HA_URL,     ha_url);
             llLinksetDataWrite(LD_BRIDGE_KEY, trusted_bridge_key);
             llOwnerSay("MMO HUD: HA URL updated from bridge (" + name + ").");
-            updateHoverText();
+    
             if (is_ready) {
                 registerWithHA();
                 sendStateNow();
@@ -220,7 +197,7 @@ default {
             trusted_bridge_key = "";
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llOwnerSay("MMO HUD: HA URL saved (bridge pairing cleared).");
-            updateHoverText();
+    
             if (is_ready) registerWithHA();
 
         } else if (llGetSubString(msg, 0, 7) == "setpoll ") {
@@ -268,7 +245,7 @@ default {
                 is_ready             = FALSE;
                 llOwnerSay("MMO HUD: URL request denied, retrying in "
                     + (string)((integer)url_retry_s) + "s...");
-                updateHoverText();
+        
                 scheduleUrlRetry();
                 return;
             }
@@ -277,7 +254,7 @@ default {
                 is_ready             = TRUE;
                 my_url               = body;
                 url_retry_s          = 2.0;
-                updateHoverText();
+        
                 registerWithHA();
                 llSetTimerEvent(poll_interval);
                 // Ask bridge for latest URL in case it changed while we were offline
@@ -321,7 +298,7 @@ default {
                 my_url = "";
             }
             url_retry_s = 2.0;
-            updateHoverText();
+    
             doRequestUrl();
             llSetTimerEvent(url_retry_s);
             // Once we have a URL again, we'll ask the bridge for an update
