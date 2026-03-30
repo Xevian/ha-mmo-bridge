@@ -11,10 +11,15 @@
 // Setup: /5 seturl <webhook URL including ?token=...>
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Protocol version — bump when making breaking payload changes ──────────────
+integer PROTOCOL_VERSION = 1;
+
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmostats_ha_url";
 string LD_POLL_INTERVAL = "mmostats_poll_interval";
 string LD_CUSTOM_LINES  = "mmostats_custom_lines";
+string LD_OWNER         = "mmostats_owner";
+string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
@@ -47,16 +52,19 @@ updateHoverText() {
     string line2;
     vector color;
 
+    string parcel_name = llList2String(llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]), 0);
+    if (parcel_name == "") parcel_name = llGetRegionName();
+
     if (ha_url == "") {
-        line1 = "MMO Stats";
+        line1 = "MMO Node";
         line2 = "No HA URL — use /5 seturl";
         color = <1.0, 0.3, 0.3>;  // red
     } else if (!is_ready) {
-        line1 = "MMO Stats | " + llGetRegionName();
+        line1 = "MMO Node | " + parcel_name;
         line2 = "Connecting...";
         color = <1.0, 0.7, 0.0>;  // amber
     } else {
-        line1 = "MMO Stats | " + llGetRegionName();
+        line1 = "MMO Node | " + parcel_name;
         line2 = "FPS: " + (string)((integer)llGetRegionFPS())
               + "  TD: " + llGetSubString((string)llGetRegionTimeDilation(), 0, 3);
         color = <0.3, 1.0, 0.3>;  // green
@@ -93,6 +101,7 @@ string buildWorldData() {
 
 string buildPayload() {
     list fields = [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -125,6 +134,7 @@ scheduleUrlRetry() {
 registerWithHA() {
     if (!is_ready || ha_url == "") return;
     string payload = llList2Json(JSON_OBJECT, [
+        "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
@@ -146,6 +156,7 @@ showHelp() {
     llOwnerSay("  setpoll <sec>  — set stats poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show current status");
     llOwnerSay("  push           — force an immediate stats push to HA");
+    llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
 }
 
@@ -153,13 +164,22 @@ showHelp() {
 
 default {
     state_entry() {
+        string stored_owner  = llLinksetDataRead(LD_OWNER);
+        string current_owner = (string)llGetOwner();
+        if (stored_owner != current_owner) {
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataWrite(LD_OWNER, current_owner);
+        }
+
         is_ready             = FALSE;
         url_request_inflight = FALSE;
         url_retry_s          = 2.0;
         regRequestKey        = NULL_KEY;
 
         // Load HA URL
-        ha_url = llLinksetDataRead(LD_HA_URL);
+        ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
         if (ha_url != "")
             llOwnerSay("MMO Stats: loaded HA URL from linkset data.");
         else
@@ -180,6 +200,14 @@ default {
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
 
+        // Name the object after its parcel so it's identifiable in-world
+        list   parcel      = llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]);
+        string parcel_name = llList2String(parcel, 0);
+        if (parcel_name != "")
+            llSetObjectName("MMO Node - " + parcel_name);
+        else
+            llSetObjectName("MMO Node");
+
         updateHoverText();
         llOwnerSay("MMO Stats: starting, requesting HTTP-in URL...");
         doRequestUrl();
@@ -195,7 +223,7 @@ default {
                 return;
             }
             ha_url = new_url;
-            llLinksetDataWrite(LD_HA_URL, ha_url);
+            llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
             llOwnerSay("MMO Stats: HA URL saved.");
             updateHoverText();
             registerWithHA();
@@ -227,6 +255,13 @@ default {
 
         } else if (msg == "help") {
             showHelp();
+
+        } else if (msg == "hardreset") {
+            llOwnerSay("MMO Stats: clearing all stored data and resetting...");
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llResetScript();
 
         } else {
             llOwnerSay("Unknown command. Type /5 help for available commands.");
@@ -264,6 +299,9 @@ default {
             } else if (cmd == "set_text") {
                 string ckey = llJsonGetValue(body, ["key"]);
                 string cval = llJsonGetValue(body, ["value"]);
+                // Guard against oversized values (HA caps these too, belt-and-braces)
+                if (llStringLength(ckey) > 64)  ckey = llGetSubString(ckey, 0, 63);
+                if (llStringLength(cval) > 256) cval = llGetSubString(cval, 0, 255);
                 if (ckey != JSON_INVALID && ckey != "") {
                     integer idx = llListFindList(custom_lines, [ckey]);
                     if (cval == "" || cval == JSON_INVALID) {
@@ -288,8 +326,20 @@ default {
     http_response(key req, integer status, list meta, string body) {
         if (req == regRequestKey) {
             if (status == 200) {
+                string ha_proto = llJsonGetValue(body, ["protocol"]);
+                if (ha_proto != JSON_INVALID && (integer)ha_proto > PROTOCOL_VERSION)
+                    llOwnerSay("MMO Stats: HA is running protocol v" + ha_proto
+                        + " (this script is v" + (string)PROTOCOL_VERSION
+                        + "). Consider updating your scripts.");
                 llOwnerSay("MMO Stats: registered with HA. Sending initial stats...");
                 sendStatsNow();
+            } else if (status == 400) {
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == "protocol_outdated")
+                    llOwnerSay("MMO Stats: script protocol v" + (string)PROTOCOL_VERSION
+                        + " is too old for this HA installation. Please update your scripts.");
+                else
+                    llOwnerSay("MMO Stats: HA registration failed (HTTP 400). Check URL and token.");
             } else {
                 llOwnerSay("MMO Stats: HA registration failed (HTTP " + (string)status + "). Check URL and token.");
             }
@@ -306,7 +356,14 @@ default {
     }
 
     changed(integer c) {
-        if (c & (CHANGED_OWNER | CHANGED_INVENTORY)) {
+        if (c & CHANGED_OWNER) {
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
+            llLinksetDataDelete(LD_POLL_INTERVAL);
+            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataDelete(LD_OWNER);
+            llResetScript();
+        }
+        if (c & CHANGED_INVENTORY) {
             llResetScript();
         }
         if (c & (CHANGED_REGION | CHANGED_REGION_START | CHANGED_TELEPORT)) {
@@ -318,6 +375,12 @@ default {
                 my_url = "";
             }
             url_retry_s = 2.0;
+            // Re-apply name in case object was moved to a different parcel
+            string parcel_name = llList2String(llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]), 0);
+            if (parcel_name != "")
+                llSetObjectName("MMO Node - " + parcel_name);
+            else
+                llSetObjectName("MMO Node");
             llOwnerSay("MMO Stats: region change, re-requesting URL...");
             updateHoverText();
             doRequestUrl();

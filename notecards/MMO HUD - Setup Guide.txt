@@ -1,0 +1,120 @@
+╔══════════════════════════════════════════════╗
+║         MMO HUD — Setup Guide               ║
+╚══════════════════════════════════════════════╝
+
+This HUD tracks your avatar state (AFK, busy,
+location) and lets you run Home Assistant
+scripts from a touch menu in-world.
+
+It's invisible — no hover text, no clutter.
+It only speaks up if something goes wrong.
+
+───────────────────────────────────────────────
+  FIRST TIME SETUP
+───────────────────────────────────────────────
+
+1. Wear this HUD as an attachment
+   (Right-click → Wear, or Add)
+
+2. Touch the MMO Hub object in-world
+   The Hub will send the HA connection URL to
+   your HUD automatically. You'll see a
+   confirmation in local chat.
+
+That's all. You're connected.
+
+───────────────────────────────────────────────
+  USING THE SCRIPT MENU
+───────────────────────────────────────────────
+
+TOUCH the HUD to open a menu of Home Assistant
+scripts the owner has made available to you.
+
+Pick one and it'll run in HA. You'll see
+"done" in local chat when it's complete.
+
+Scripts labelled "MMO Script" are shared with
+everyone. Scripts labelled "MMO - Your Name"
+are private to you.
+
+Ask the owner to add scripts you'd find useful!
+
+───────────────────────────────────────────────
+  CHAT COMMANDS  (type in local chat)
+───────────────────────────────────────────────
+
+All commands use channel 6 — type a / before
+the number, then the command:
+
+  /6 help
+      Show all available commands
+
+  /6 status
+      Show connection status, bridge pairing,
+      and how many scripts are cached
+
+  /6 push
+      Force an immediate status update to HA
+      (useful after coming back from AFK)
+
+  /6 setpoll <seconds>
+      How often to check for state changes
+      Minimum 5s, default 15s
+      Example:  /6 setpoll 30
+
+  /6 setbridge
+      Clear bridge pairing — use this if you
+      want to pair with a different Hub object
+      Then touch the new Hub to re-pair
+
+  /6 hardreset
+      Clears ALL stored data (URL, pairing,
+      secret) and resets the HUD from scratch
+      Use this if moving to a new HA instance
+      or if something is badly broken
+
+───────────────────────────────────────────────
+  WHAT THE HUD SENDS TO HA
+───────────────────────────────────────────────
+
+  • AFK status (when you go AFK / come back)
+  • Busy status
+  • Current region and parcel name
+  • Position (for the device tracker only)
+
+Updates are only sent when something changes —
+not on a fixed timer — so it's lightweight.
+
+───────────────────────────────────────────────
+  SECURITY
+───────────────────────────────────────────────
+
+The HUD only accepts setup information from the
+Hub object it first paired with. If you walk
+near someone else's Hub, it won't hijack your
+connection.
+
+Script commands are cryptographically signed
+so they can't be faked or replayed.
+
+───────────────────────────────────────────────
+  TROUBLESHOOTING
+───────────────────────────────────────────────
+
+"no HA URL" on startup
+  → Touch the Hub object while wearing the HUD
+
+Script menu shows nothing
+  → The owner hasn't labelled any scripts yet,
+    or touch the Hub again to refresh
+
+"command rejected" after picking a script
+  → Detach and re-wear the HUD to re-register
+
+HUD behaving strangely
+  → Try /6 hardreset, then touch the Hub again
+
+───────────────────────────────────────────────
+
+Questions? Ask the owner — they handle the
+Home Assistant side of things.
