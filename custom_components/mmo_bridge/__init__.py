@@ -6,7 +6,7 @@ from homeassistant.helpers.network import get_url, NoURLAvailableError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.reload import async_setup_reload_service
-from homeassistant.helpers import discovery
+from homeassistant.helpers import discovery, entity_registry as er, label_registry as lr
 from homeassistant.util import slugify
 from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
 from homeassistant.components.device_tracker.const import SourceType
@@ -14,6 +14,10 @@ from aiohttp import web
 import aiohttp
 import logging
 import secrets
+import hmac as py_hmac
+import hashlib
+import base64
+import time
 
 DOMAIN = "mmo_bridge"
 SIGNAL_PRESENCE_UPDATED = f"{DOMAIN}_presence_updated"
@@ -22,6 +26,12 @@ SIGNAL_NODE_UPDATED     = f"{DOMAIN}_node_updated"
 # dict (key "version") to avoid HA's built-in migration pipeline.
 _HA_STORE_VERSION = 1
 STORE_VERSION     = 2  # our internal schema version
+
+# Labels auto-created by the integration.
+# Any HA script tagged "MMO Script" is accessible to all registered HUDs.
+# Any script tagged "MMO - <Avatar Name>" is accessible only to that avatar's HUD.
+MMO_LABEL_GLOBAL = "MMO Script"
+MMO_LABEL_PREFIX = "MMO - "
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,16 +44,16 @@ async def async_setup(hass, config):
     # online_by_world[world] = [avatar_name, ...]
     # avatar_home[world][avatar_name] = True/False
     # known_avatars[world][avatar_name] = key_str
-    hass.data[DOMAIN]["nodes"]           = {}
-    hass.data[DOMAIN]["online_by_world"] = {}
-    hass.data[DOMAIN]["avatar_home"]     = {}
-    hass.data[DOMAIN]["known_avatars"]   = {}
-    hass.data[DOMAIN]["avatar_state"]    = {}  # world -> avatar -> {afk, busy, in_voice, region, parcel}
+    # avatar_hmac_secrets[avatar_slug] = hex_secret  (persisted)
+    hass.data[DOMAIN]["nodes"]               = {}
+    hass.data[DOMAIN]["online_by_world"]     = {}
+    hass.data[DOMAIN]["avatar_home"]         = {}
+    hass.data[DOMAIN]["known_avatars"]       = {}
+    hass.data[DOMAIN]["avatar_state"]        = {}
+    hass.data[DOMAIN]["avatar_hmac_secrets"] = {}
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
-    # Load persisted token and node URLs.
-    # _HA_STORE_VERSION is always 1 — HA never triggers its own migration logic.
-    # We manage schema upgrades ourselves via the "version" key inside the data.
+    # Load persisted token, nodes, and HMAC secrets.
     store  = Store(hass, _HA_STORE_VERSION, DOMAIN)
     stored = await store.async_load() or {}
 
@@ -56,6 +66,9 @@ async def async_setup(hass, config):
         token = secrets.token_urlsafe(24)
     hass.data[DOMAIN]["token"] = token
 
+    # Restore per-avatar HMAC secrets
+    hass.data[DOMAIN]["avatar_hmac_secrets"] = stored.get("avatar_hmac_secrets", {})
+
     # Restore nodes from storage
     for world, nodes in stored.get("nodes", {}).items():
         hass.data[DOMAIN]["nodes"][world]           = nodes
@@ -63,7 +76,12 @@ async def async_setup(hass, config):
         hass.data[DOMAIN]["avatar_home"][world]     = {}
         _LOGGER.info("Restored %d node(s) for world '%s' from storage", len(nodes), world)
 
-    await store.async_save(_make_store_payload(token, hass.data[DOMAIN]["nodes"]))
+    await store.async_save(_make_store_payload(
+        token, hass.data[DOMAIN]["nodes"], hass.data[DOMAIN]["avatar_hmac_secrets"]
+    ))
+
+    # Ensure the global "MMO Script" label exists in HA
+    _ensure_mmo_labels(hass)
 
     # ── Webhook handler ───────────────────────────────────────────────────────
 
@@ -74,6 +92,64 @@ async def async_setup(hass, config):
             return web.Response(status=403)
 
         world        = data.get("world", "secondlife")
+        payload_type = data.get("type", "")
+
+        # ── HUD: fetch labelled script list ───────────────────────────────────
+        if payload_type == "hud_list_scripts":
+            avatar = data.get("avatar", "")
+            if not avatar:
+                return web.Response(status=400)
+            scripts = _get_scripts_for_avatar(hass, avatar)
+            _LOGGER.debug(
+                "hud_list_scripts: returning %d script(s) for '%s'", len(scripts), avatar
+            )
+            return web.json_response({"scripts": scripts})
+
+        # ── HUD: execute a labelled script ────────────────────────────────────
+        if payload_type == "hud_command":
+            avatar    = data.get("avatar", "")
+            script_id = data.get("script", "")
+            ts        = int(data.get("ts", 0))
+            sig       = data.get("sig", "")
+
+            if not avatar or not script_id:
+                return web.Response(status=400)
+
+            avatar_slug = slugify(avatar)
+            secret = hass.data[DOMAIN].get("avatar_hmac_secrets", {}).get(avatar_slug)
+            if not secret:
+                _LOGGER.warning("hud_command: no HMAC secret for avatar '%s'", avatar)
+                return web.Response(status=403, text="not registered")
+
+            if not _verify_command_hmac(secret, ts, script_id, sig):
+                _LOGGER.warning("hud_command: HMAC verify failed for avatar '%s'", avatar)
+                return web.Response(status=403, text="invalid signature")
+
+            # Confirm the script is actually labelled for this avatar
+            allowed_ids = {s["id"] for s in _get_scripts_for_avatar(hass, avatar)}
+            if script_id not in allowed_ids:
+                _LOGGER.warning(
+                    "hud_command: script '%s' not labelled for avatar '%s'",
+                    script_id, avatar,
+                )
+                return web.Response(status=403, text="script not allowed")
+
+            try:
+                await hass.services.async_call(
+                    "script", "turn_on",
+                    {"entity_id": f"script.{script_id}"},
+                    blocking=False,
+                )
+                _LOGGER.info(
+                    "hud_command: ran script '%s' for avatar '%s'", script_id, avatar
+                )
+            except Exception as exc:
+                _LOGGER.error("hud_command: failed to run '%s': %s", script_id, exc)
+                return web.Response(status=500)
+
+            return web.json_response({"status": "ok"})
+
+        # ── Standard node/presence/state processing ───────────────────────────
         raw_node_id  = data.get("node_id", "")
         node_id      = slugify(raw_node_id) if raw_node_id else "default"
 
@@ -111,7 +187,10 @@ async def async_setup(hass, config):
                         "(replaced by node '%s')", world, node_id
                     )
 
-            await store.async_save(_make_store_payload(token, hass.data[DOMAIN]["nodes"]))
+            await store.async_save(_make_store_payload(
+                token, hass.data[DOMAIN]["nodes"],
+                hass.data[DOMAIN]["avatar_hmac_secrets"],
+            ))
             _LOGGER.info("Node '%s' registered for world '%s': %s", node_id, world, url)
 
             _ensure_online_sensor(hass, world)
@@ -168,26 +247,45 @@ async def async_setup(hass, config):
         if "avatar_state" in (data.get("capabilities") or []):
             avatar = data.get("avatar")
             if avatar:
+                avatar_slug = slugify(avatar)
                 hass.data[DOMAIN]["avatar_state"].setdefault(world, {})
                 old = hass.data[DOMAIN]["avatar_state"][world].get(avatar, {})
-                new = {
+                new_state = {
                     "afk":    data.get("afk",  False),
                     "busy":   data.get("busy", False),
                     "region": data.get("region"),
                     "parcel": data.get("parcel"),
                 }
-                hass.data[DOMAIN]["avatar_state"][world][avatar] = new
+                hass.data[DOMAIN]["avatar_state"][world][avatar] = new_state
 
                 # Fire events for boolean state transitions
                 for flag in ("afk", "busy"):
-                    if old.get(flag) != new[flag]:
+                    if old.get(flag) != new_state[flag]:
                         hass.bus.async_fire(f"{DOMAIN}_avatar_{flag}_changed", {
                             "world":  world,
                             "avatar": avatar,
-                            flag:     new[flag],
+                            flag:     new_state[flag],
                         })
 
                 _update_device_tracker(hass, world, avatar)
+
+                # Issue a per-avatar HMAC secret on first contact; return it on
+                # every registration response so the HUD can recover after reset.
+                secrets_map = hass.data[DOMAIN]["avatar_hmac_secrets"]
+                if avatar_slug not in secrets_map:
+                    secrets_map[avatar_slug] = secrets.token_hex(32)
+                    _ensure_avatar_label(hass, avatar)
+                    await store.async_save(_make_store_payload(
+                        token, hass.data[DOMAIN]["nodes"], secrets_map
+                    ))
+                    _LOGGER.info(
+                        "Issued HMAC secret and created label for avatar '%s'", avatar
+                    )
+
+                return web.json_response({
+                    "status":      "ok",
+                    "hmac_secret": secrets_map[avatar_slug],
+                })
 
         return web.Response(text="OK")
 
@@ -235,7 +333,6 @@ async def async_setup(hass, config):
 
         # Build the target list
         if node_id:
-            # Specific node requested
             node = world_nodes.get(node_id)
             if not node:
                 _LOGGER.warning(
@@ -244,7 +341,6 @@ async def async_setup(hass, config):
                 return
             targets = {node_id: node}
         else:
-            # All display-capable nodes; fall back to all nodes if none declare display
             targets = {nid: n for nid, n in world_nodes.items()
                        if "display" in n.get("capabilities", [])}
             if not targets:
@@ -322,7 +418,7 @@ def _migrate_v1_to_v2(stored):
     return {"token": stored.get("token"), "nodes": nodes, "version": 2}
 
 
-def _make_store_payload(token, nodes):
+def _make_store_payload(token, nodes, avatar_hmac_secrets=None):
     """Strip runtime-only world_data before persisting."""
     nodes_to_save = {}
     for world, nmap in nodes.items():
@@ -332,7 +428,91 @@ def _make_store_payload(token, nodes):
                 "url":          node.get("url", ""),
                 "capabilities": node.get("capabilities", []),
             }
-    return {"token": token, "nodes": nodes_to_save, "version": STORE_VERSION}
+    return {
+        "token":               token,
+        "nodes":               nodes_to_save,
+        "version":             STORE_VERSION,
+        "avatar_hmac_secrets": avatar_hmac_secrets or {},
+    }
+
+
+# ── Label helpers ─────────────────────────────────────────────────────────────
+
+def _ensure_mmo_labels(hass):
+    """Create the global 'MMO Script' label if it doesn't already exist."""
+    registry = lr.async_get(hass)
+    if not registry.async_get_label_by_name(MMO_LABEL_GLOBAL):
+        registry.async_create(MMO_LABEL_GLOBAL, color="#0288d1", icon="mdi:controller-classic")
+        _LOGGER.info("Created HA label '%s'", MMO_LABEL_GLOBAL)
+
+
+def _ensure_avatar_label(hass, avatar_name):
+    """Create a per-avatar 'MMO - <Name>' label if it doesn't already exist."""
+    label_name = f"{MMO_LABEL_PREFIX}{avatar_name}"
+    registry   = lr.async_get(hass)
+    if not registry.async_get_label_by_name(label_name):
+        registry.async_create(label_name, color="#7b1fa2", icon="mdi:account")
+        _LOGGER.info("Created HA label '%s'", label_name)
+
+
+def _get_scripts_for_avatar(hass, avatar_name):
+    """Return scripts labelled 'MMO Script' or 'MMO - <avatar_name>'.
+
+    Each entry is {"id": <entity id without 'script.' prefix>, "name": <friendly name>}.
+    """
+    entity_reg = er.async_get(hass)
+    label_reg  = lr.async_get(hass)
+
+    allowed_label_ids: set = set()
+    global_label = label_reg.async_get_label_by_name(MMO_LABEL_GLOBAL)
+    if global_label:
+        allowed_label_ids.add(global_label.label_id)
+    avatar_label = label_reg.async_get_label_by_name(f"{MMO_LABEL_PREFIX}{avatar_name}")
+    if avatar_label:
+        allowed_label_ids.add(avatar_label.label_id)
+
+    if not allowed_label_ids:
+        return []
+
+    scripts = []
+    for entry in entity_reg.entities.values():
+        if entry.domain != "script":
+            continue
+        if not (entry.labels & allowed_label_ids):
+            continue
+        state = hass.states.get(entry.entity_id)
+        name  = (
+            (state.attributes.get("friendly_name") if state else None)
+            or entry.name
+            or entry.entity_id.replace("script.", "").replace("_", " ").title()
+        )
+        scripts.append({
+            "id":   entry.entity_id.replace("script.", ""),
+            "name": name,
+        })
+
+    return scripts
+
+
+# ── HMAC verification ─────────────────────────────────────────────────────────
+
+def _verify_command_hmac(secret: str, ts: int, script_id: str, sig: str) -> bool:
+    """Verify a HUD command HMAC signature.
+
+    The canonical message is "<ts>.script.<script_id>", signed with HMAC-SHA256
+    and base64-encoded — matching llHMAC(secret, canon, "sha256") in LSL.
+    A 60-second replay window accounts for llHMAC's mandatory 10-second delay.
+    """
+    age = abs(int(time.time()) - ts)
+    if age > 60:
+        _LOGGER.warning("hud_command: timestamp too old (%ds)", age)
+        return False
+
+    canon    = f"{ts}.script.{script_id}"
+    expected = base64.b64encode(
+        py_hmac.new(secret.encode(), canon.encode(), hashlib.sha256).digest()
+    ).decode()
+    return py_hmac.compare_digest(expected, sig)
 
 
 # ── Device tracker helper ─────────────────────────────────────────────────────
