@@ -171,16 +171,15 @@ async def async_setup(hass, config):
                 hass.data[DOMAIN]["avatar_state"].setdefault(world, {})
                 old = hass.data[DOMAIN]["avatar_state"][world].get(avatar, {})
                 new = {
-                    "afk":      data.get("afk",      False),
-                    "busy":     data.get("busy",      False),
-                    "in_voice": data.get("in_voice",  False),
-                    "region":   data.get("region"),
-                    "parcel":   data.get("parcel"),
+                    "afk":    data.get("afk",  False),
+                    "busy":   data.get("busy", False),
+                    "region": data.get("region"),
+                    "parcel": data.get("parcel"),
                 }
                 hass.data[DOMAIN]["avatar_state"][world][avatar] = new
 
                 # Fire events for boolean state transitions
-                for flag in ("afk", "busy", "in_voice"):
+                for flag in ("afk", "busy"):
                     if old.get(flag) != new[flag]:
                         hass.bus.async_fire(f"{DOMAIN}_avatar_{flag}_changed", {
                             "world":  world,
@@ -356,9 +355,8 @@ def _update_device_tracker(hass, world, avatar):
         "world":         world,
     }
     if av_state:
-        attrs["afk"]      = av_state.get("afk",      False)
-        attrs["busy"]     = av_state.get("busy",      False)
-        attrs["in_voice"] = av_state.get("in_voice",  False)
+        attrs["afk"]  = av_state.get("afk",  False)
+        attrs["busy"] = av_state.get("busy", False)
         if av_state.get("region"):
             attrs["sl_region"] = av_state["region"]
         if av_state.get("parcel"):

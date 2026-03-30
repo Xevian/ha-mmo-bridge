@@ -54,12 +54,10 @@ string buildPayload() {
     vector  pos    = llGetPos();
     list    parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
 
-    string afk      = JSON_FALSE;
-    string busy     = JSON_FALSE;
-    string in_voice = JSON_FALSE;
-    if (info & AGENT_AWAY)    afk      = JSON_TRUE;
-    if (info & AGENT_BUSY)    busy     = JSON_TRUE;
-    if (info & AGENT_IN_VOICE) in_voice = JSON_TRUE;
+    string afk  = JSON_FALSE;
+    string busy = JSON_FALSE;
+    if (info & AGENT_AWAY) afk  = JSON_TRUE;
+    if (info & AGENT_BUSY) busy = JSON_TRUE;
 
     return llList2Json(JSON_OBJECT, [
         "world",        "secondlife",
@@ -67,7 +65,6 @@ string buildPayload() {
         "avatar",       llKey2Name(llGetOwner()),
         "afk",          afk,
         "busy",         busy,
-        "in_voice",     in_voice,
         "region",       llGetRegionName(),
         "parcel",       llList2String(parcel, 0),
         "pos",          (string)pos
