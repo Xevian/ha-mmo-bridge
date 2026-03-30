@@ -216,38 +216,57 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "request_update", handle_request_update)
 
     async def handle_set_object_text(call):
-        """Push a named hover-text line to a display-capable node."""
-        world = call.data.get("world", "secondlife")
-        key   = call.data.get("key", "")
-        value = call.data.get("value", "")
+        """Push a named hover-text line to display-capable node(s).
+
+        node_id omitted → send to ALL display-capable nodes in the world
+        node_id set     → send to that specific node only
+        """
+        world   = call.data.get("world", "secondlife")
+        key     = call.data.get("key", "")
+        value   = call.data.get("value", "")
+        node_id = call.data.get("node_id")   # optional — None means broadcast
         if not key:
             _LOGGER.warning("set_object_text: 'key' is required")
             return
 
-        # Prefer a node that advertises the 'display' capability
-        url = None
-        for node in hass.data[DOMAIN]["nodes"].get(world, {}).values():
-            if "display" in node.get("capabilities", []):
-                url = node.get("url")
-                break
-        # Fall back to any node for this world
-        if not url:
-            for node in hass.data[DOMAIN]["nodes"].get(world, {}).values():
-                url = node.get("url")
-                if url:
-                    break
-
-        if not url:
-            _LOGGER.warning("set_object_text: no adapter URL for world '%s'", world)
+        world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
+        if not world_nodes:
+            _LOGGER.warning("set_object_text: no nodes registered for world '%s'", world)
             return
-        try:
-            session = async_get_clientsession(hass)
-            timeout = aiohttp.ClientTimeout(total=5)
-            await session.post(
-                url, json={"command": "set_text", "key": key, "value": value}, timeout=timeout
-            )
-        except Exception as e:
-            _LOGGER.error("Failed to set object text for world '%s': %s", world, e)
+
+        # Build the target list
+        if node_id:
+            # Specific node requested
+            node = world_nodes.get(node_id)
+            if not node:
+                _LOGGER.warning(
+                    "set_object_text: node '%s' not found in world '%s'", node_id, world
+                )
+                return
+            targets = {node_id: node}
+        else:
+            # All display-capable nodes; fall back to all nodes if none declare display
+            targets = {nid: n for nid, n in world_nodes.items()
+                       if "display" in n.get("capabilities", [])}
+            if not targets:
+                targets = world_nodes
+
+        session = async_get_clientsession(hass)
+        for nid, node in targets.items():
+            url = node.get("url")
+            if not url:
+                continue
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                await session.post(
+                    url, json={"command": "set_text", "key": key, "value": value},
+                    timeout=timeout,
+                )
+                _LOGGER.debug("set_object_text sent to node '%s' in '%s'", nid, world)
+            except Exception as e:
+                _LOGGER.error(
+                    "Failed to set object text on node '%s' in '%s': %s", nid, world, e
+                )
 
     hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
 
