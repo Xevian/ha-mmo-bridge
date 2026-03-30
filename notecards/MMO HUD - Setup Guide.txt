@@ -30,10 +30,8 @@ That's all. You're connected.
 TOUCH the HUD to open a menu of Home Assistant
 scripts the owner has made available to you.
 
-Pick one and it'll run in HA. You'll see a
-"signing..." message for about 10 seconds
-(that's normal — it's a Second Life thing),
-then "done" when it's complete.
+Pick one and it'll run in HA. You'll see
+"done" in local chat when it's complete.
 
 Scripts labelled "MMO Script" are shared with
 everyone. Scripts labelled "MMO - Your Name"

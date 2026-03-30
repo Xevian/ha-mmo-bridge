@@ -6,8 +6,8 @@
 //
 // A companion script (sl_hud_commands.lsl) in the same linkset handles the
 // touch menu and HMAC-signed script commands. Keeping them separate means
-// llHMAC's 10-second delay only freezes the command script — this script
-// stays fully responsive for state polling and bridge communication.
+// llHMAC signing only blocks the command script — this script stays fully
+// responsive for state polling and bridge communication.
 //
 // URL bootstrap (no manual typing needed):
 //   1. Touch the bridge object — it sends the HA URL to this HUD automatically.

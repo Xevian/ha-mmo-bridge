@@ -4,9 +4,9 @@
 // Companion script for sl_avatar_hud.lsl — handles the interactive script menu
 // and HMAC-signed command dispatch. Lives in the same linkset as the main HUD.
 //
-// Keeping this separate means llHMAC's mandatory 10-second delay only freezes
-// this script, not the main HUD. The main HUD stays responsive for state
-// polling, bridge URL updates, and chat commands while a command is being signed.
+// Keeping this separate means llHMAC signing only blocks this script, not the
+// main HUD. The main HUD stays responsive for state polling, bridge URL updates,
+// and chat commands while a command is being signed.
 //
 // Communication:
 //   Main HUD → this script:  llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY)
@@ -90,12 +90,9 @@ sendCommand(string script_id) {
         return;
     }
 
-    // Capture timestamp before the mandatory 10-second llHMAC delay.
-    // HA allows a 60-second replay window so the wait is well within budget.
     integer ts    = llGetUnixTime();
     string  canon = (string)ts + ".script." + script_id;
-    llOwnerSay("MMO HUD: signing... (~10s)");
-    string sig = llHMAC(hmac_secret, canon, "sha256");  // ← 10s freeze (this script only)
+    string  sig   = llHMAC(hmac_secret, canon, "sha256");
 
     string payload = llList2Json(JSON_OBJECT, [
         "protocol", PROTOCOL_VERSION,
