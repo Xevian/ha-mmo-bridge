@@ -47,6 +47,13 @@ float   url_retry_s          = 2.0;
 float   poll_interval        = 15.0;
 key     regRequestKey;
 
+// ── Change tracking — only push when something meaningful shifts ───────────────
+// Position is included in payloads but too noisy to use as a change trigger.
+string  last_afk    = "";
+string  last_busy   = "";
+string  last_region = "";
+string  last_parcel = "";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 string buildPayload() {
@@ -93,10 +100,47 @@ registerWithHA() {
         [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], buildPayload());
 }
 
+integer stateChanged() {
+    // Returns TRUE if any tracked field differs from the last push.
+    integer info   = llGetAgentInfo(llGetOwner());
+    vector  pos    = llGetPos();
+    list    parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
+
+    string afk    = JSON_FALSE;
+    string busy   = JSON_FALSE;
+    if (info & AGENT_AWAY) afk  = JSON_TRUE;
+    if (info & AGENT_BUSY) busy = JSON_TRUE;
+
+    string region = llGetRegionName();
+    string parcel_name = llList2String(parcel, 0);
+
+    return (afk    != last_afk
+         || busy   != last_busy
+         || region != last_region
+         || parcel_name != last_parcel);
+}
+
+updateLastState() {
+    integer info   = llGetAgentInfo(llGetOwner());
+    vector  pos    = llGetPos();
+    list    parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
+
+    if (info & AGENT_AWAY) last_afk  = JSON_TRUE;  else last_afk  = JSON_FALSE;
+    if (info & AGENT_BUSY) last_busy = JSON_TRUE;   else last_busy = JSON_FALSE;
+    last_region = llGetRegionName();
+    last_parcel = llList2String(parcel, 0);
+}
+
 sendStateNow() {
     if (ha_url == "" || !is_ready) return;
     llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
         buildPayload());
+    updateLastState();
+}
+
+sendStateIfChanged() {
+    if (ha_url == "" || !is_ready) return;
+    if (stateChanged()) sendStateNow();
 }
 
 requestUrlFromBridge() {
@@ -306,7 +350,7 @@ default {
             doRequestUrl();
             return;
         }
-        sendStateNow();
+        sendStateIfChanged();
     }
 
     changed(integer c) {
@@ -321,6 +365,11 @@ default {
                 my_url = "";
             }
             url_retry_s = 2.0;
+            // Clear tracked state so the first push after arrival always fires
+            last_afk    = "";
+            last_busy   = "";
+            last_region = "";
+            last_parcel = "";
             doRequestUrl();
             llSetTimerEvent(url_retry_s);
         }
