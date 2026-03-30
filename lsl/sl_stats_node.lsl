@@ -50,16 +50,19 @@ updateHoverText() {
     string line2;
     vector color;
 
+    string parcel_name = llList2String(llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]), 0);
+    if (parcel_name == "") parcel_name = llGetRegionName();
+
     if (ha_url == "") {
-        line1 = "MMO Stats";
+        line1 = "MMO Node";
         line2 = "No HA URL — use /5 seturl";
         color = <1.0, 0.3, 0.3>;  // red
     } else if (!is_ready) {
-        line1 = "MMO Stats | " + llGetRegionName();
+        line1 = "MMO Node | " + parcel_name;
         line2 = "Connecting...";
         color = <1.0, 0.7, 0.0>;  // amber
     } else {
-        line1 = "MMO Stats | " + llGetRegionName();
+        line1 = "MMO Node | " + parcel_name;
         line2 = "FPS: " + (string)((integer)llGetRegionFPS())
               + "  TD: " + llGetSubString((string)llGetRegionTimeDilation(), 0, 3);
         color = <0.3, 1.0, 0.3>;  // green
@@ -357,6 +360,12 @@ default {
                 my_url = "";
             }
             url_retry_s = 2.0;
+            // Re-apply name in case object was moved to a different parcel
+            string parcel_name = llList2String(llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]), 0);
+            if (parcel_name != "")
+                llSetObjectName("MMO Node - " + parcel_name);
+            else
+                llSetObjectName("MMO Node");
             llOwnerSay("MMO Stats: region change, re-requesting URL...");
             updateHoverText();
             doRequestUrl();
