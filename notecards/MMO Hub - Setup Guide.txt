@@ -2,13 +2,25 @@
 ║         MMO Hub — Setup Guide               ║
 ╚══════════════════════════════════════════════╝
 
-Welcome! This object connects your Second Life
-presence to Home Assistant so the owner can see
-when you're online, send you messages in-world,
-and run automations based on your status.
+This object connects your Second Life presence
+to Home Assistant so the owner can see when
+you're online, send you messages in-world, and
+run automations based on your status.
 
 ───────────────────────────────────────────────
-  STEP 1 — Register
+  STEP 1 — Rez the Hub
+───────────────────────────────────────────────
+
+Rez this object on your home parcel. The Hub
+should stay rezzed permanently so Home Assistant
+always has an active connection.
+
+Make sure the object's group is set to the group
+you want to use for registration — only members
+with that group tag active can register.
+
+───────────────────────────────────────────────
+  STEP 2 — Register
 ───────────────────────────────────────────────
 
 Make sure your group tag is active, then TOUCH
@@ -19,21 +31,6 @@ That's it — you're connected!
 
 If you're already registered and touch again,
 your HUD URL will be refreshed automatically.
-
-───────────────────────────────────────────────
-  STEP 2 — Wear the HUD
-───────────────────────────────────────────────
-
-You should have received an MMO HUD object in
-your inventory. Wear it as an attachment.
-
-After wearing it, touch this Hub object once —
-the Hub will send the connection URL to the HUD
-automatically. You only need to do this once
-(or after a HUD reset).
-
-See the "MMO HUD - Setup Guide" notecard inside
-your HUD for further instructions.
 
 ───────────────────────────────────────────────
   WHAT GETS TRACKED
@@ -110,9 +107,6 @@ Ask the owner to run:  /5 remove Your Name
 
 Not receiving IMs? Make sure you registered by
 touching the Hub with your group tag active.
-
-HUD not connecting? Touch the Hub while wearing
-the HUD to push the URL to it again.
 
 Contact the owner if you continue having
 trouble.
