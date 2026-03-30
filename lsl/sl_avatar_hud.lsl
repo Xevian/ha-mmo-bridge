@@ -119,6 +119,13 @@ showHelp() {
 
 default {
     state_entry() {
+        // Guard: only run when actually worn — show a hint if rezzed in-world
+        if (!llGetAttached()) {
+            llSetText("MMO HUD\nWear me — do not rez in world", <1.0, 0.3, 0.3>, 1.0);
+            return;
+        }
+        llSetText("", <0,0,0>, 0.0);  // clear any leftover text when worn
+
         is_ready             = FALSE;
         url_request_inflight = FALSE;
         url_retry_s          = 2.0;
