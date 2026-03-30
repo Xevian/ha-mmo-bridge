@@ -312,6 +312,24 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "request_update", handle_request_update)
 
+    async def handle_send_message(call):
+        """Send an in-world IM via the notify platform.
+
+        Mirrors notify.mmo_bridge so the action is discoverable in the
+        Services / Actions panel alongside the other MMO Bridge actions.
+        """
+        message = call.data.get("message", "")
+        target  = call.data.get("target")
+        if not message:
+            _LOGGER.warning("send_message: 'message' is required")
+            return
+        notify_data = {"message": message}
+        if target:
+            notify_data["target"] = [target] if isinstance(target, str) else target
+        await hass.services.async_call("notify", DOMAIN, notify_data, blocking=True)
+
+    hass.services.async_register(DOMAIN, "send_message", handle_send_message)
+
     async def handle_set_object_text(call):
         """Push a named hover-text line to display-capable node(s).
 

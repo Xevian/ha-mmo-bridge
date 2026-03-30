@@ -1,0 +1,91 @@
+send_message:
+  name: Send Message
+  description: >
+    Send an instant message to one or more avatars in-world via a registered
+    MMO Bridge node. The message is delivered as an IM to the avatar's viewer.
+  fields:
+    message:
+      name: Message
+      description: The text to send to the avatar(s).
+      required: true
+      example: "Your base is under attack!"
+      selector:
+        text:
+          multiline: true
+    target:
+      name: Target
+      description: >
+        Who to send the message to. Omit (or use "all") to broadcast to every
+        online avatar. Use an avatar's display name for a direct message
+        (e.g. "Xevian Wake"). Prefix with a world name to target a specific
+        world (e.g. "secondlife:Xevian Wake").
+      required: false
+      example: "Xevian Wake"
+      selector:
+        text: {}
+
+request_update:
+  name: Request Update
+  description: >
+    Ask registered in-world node(s) to send a fresh presence and world-data
+    update immediately, rather than waiting for the next scheduled poll.
+  fields:
+    world:
+      name: World
+      description: >
+        Which virtual world to poll. Omit to refresh all registered worlds.
+      required: false
+      example: "secondlife"
+      selector:
+        text: {}
+
+set_object_text:
+  name: Set Object Text
+  description: >
+    Push a line of hover text to one or all display-capable in-world nodes.
+    Each line is identified by a key so it can be updated or removed
+    independently without affecting other lines.
+  fields:
+    world:
+      name: World
+      description: The virtual world containing the target node(s).
+      required: false
+      default: "secondlife"
+      example: "secondlife"
+      selector:
+        text: {}
+    key:
+      name: Line Key
+      description: >
+        Identifier for this line of text. Use the same key to update or
+        clear a line you set previously.
+      required: true
+      example: "alert"
+      selector:
+        text: {}
+    value:
+      name: Text
+      description: >
+        The text to display. Leave blank (or omit) to remove a previously
+        set line.
+      required: false
+      example: "Server restarting in 5 minutes"
+      selector:
+        text: {}
+    node_id:
+      name: Node ID
+      description: >
+        Target a specific node by its ID (the slugified parcel name, visible
+        in the node's status output). Omit to send to all display-capable
+        nodes in the world.
+      required: false
+      example: "xev_getaway"
+      selector:
+        text: {}
+
+reload:
+  name: Reload
+  description: >
+    Reload the MMO Bridge sensor and notify platforms without restarting
+    Home Assistant. Useful after making changes to the integration files.
+    Note: changes to __init__.py still require a full HA restart.
