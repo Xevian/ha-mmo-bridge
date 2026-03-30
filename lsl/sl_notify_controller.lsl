@@ -489,7 +489,7 @@ default {
             // Send HA URL to this avatar's HUD immediately
             sendUrlToHud(agent);
         } else {
-            llInstantMessage(agent, "You are already registered. Ask the owner to remove you if needed.");
+            llInstantMessage(agent, "You are already registered — refreshing your HUD URL. Ask the owner to remove you if needed.");
             // Re-send URL in case their HUD restarted and lost it
             sendUrlToHud(agent);
         }
