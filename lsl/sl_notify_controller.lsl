@@ -445,6 +445,9 @@ default {
             } else if (cmd == "set_text") {
                 string ckey = llJsonGetValue(body, ["key"]);
                 string cval = llJsonGetValue(body, ["value"]);
+                // Guard against oversized values (HA caps these too, belt-and-braces)
+                if (llStringLength(ckey) > 64)  ckey = llGetSubString(ckey, 0, 63);
+                if (llStringLength(cval) > 256) cval = llGetSubString(cval, 0, 255);
                 if (ckey != JSON_INVALID && ckey != "") {
                     integer idx = llListFindList(custom_lines, [ckey]);
                     if (cval == "" || cval == JSON_INVALID) {

@@ -92,7 +92,10 @@ async def async_setup(hass, config):
     # ── Webhook handler ───────────────────────────────────────────────────────
 
     async def handle_notify_webhook(hass_arg, webhook_id, request):
-        data      = await request.json()
+        try:
+            data = await request.json()
+        except Exception:
+            return web.Response(status=400, text="invalid JSON")
         token_qs  = request.query.get("token")
         if token_qs != hass.data[DOMAIN].get("token"):
             return web.Response(status=403)
@@ -370,6 +373,10 @@ async def async_setup(hass, config):
         if not key:
             _LOGGER.warning("set_object_text: 'key' is required")
             return
+        # Cap lengths — LSL hover text is truncated at 4096 chars total; keep
+        # individual key/value pairs well within that.
+        key   = key[:64]
+        value = value[:256]
 
         world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
         if not world_nodes:
@@ -546,7 +553,8 @@ def _verify_command_hmac(secret: str, ts: int, script_id: str, sig: str) -> bool
 
     The canonical message is "<ts>.script.<script_id>", signed with HMAC-SHA256
     and base64-encoded — matching llHMAC(secret, canon, "sha256") in LSL.
-    A 60-second replay window accounts for llHMAC's mandatory 10-second delay.
+    A 60-second replay window provides tolerance for SL network latency and
+    clock skew between the viewer and the HA server.
     """
     age = abs(int(time.time()) - ts)
     if age > 60:
