@@ -22,6 +22,7 @@ integer PROTOCOL_VERSION = 1;
 // ── Linkset data keys (shared with sl_avatar_hud.lsl — read-only here) ────────
 string LD_HA_URL      = "mmohud_ha_url";
 string LD_HMAC_SECRET = "mmohud_hmac_secret";
+string LD_PASS        = "mmo_bridge";  // passphrase for protected linkset data (must match sl_avatar_hud.lsl)
 
 // ── Linked-message protocol — MUST match sl_avatar_hud.lsl ───────────────────
 integer MSG_OPEN_MENU = 1001;  // main HUD → this script: open the script menu
@@ -38,7 +39,7 @@ float   MENU_TIMEOUT_S   = 30.0; // auto-close listen if user ignores the dialog
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 requestScriptList() {
-    string ha_url = llLinksetDataRead(LD_HA_URL);
+    string ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
     if (ha_url == "") {
         llOwnerSay("MMO HUD: not connected to HA — no URL stored.");
         return;
@@ -78,8 +79,8 @@ showScriptMenu() {
 }
 
 sendCommand(string script_id) {
-    string ha_url      = llLinksetDataRead(LD_HA_URL);
-    string hmac_secret = llLinksetDataRead(LD_HMAC_SECRET);
+    string ha_url      = llLinksetDataReadProtected(LD_HA_URL,      LD_PASS);
+    string hmac_secret = llLinksetDataReadProtected(LD_HMAC_SECRET, LD_PASS);
 
     if (hmac_secret == "") {
         llOwnerSay("MMO HUD: no command token yet — try re-attaching the HUD.");

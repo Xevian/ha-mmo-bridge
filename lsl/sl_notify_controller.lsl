@@ -8,6 +8,7 @@ string LD_REGISTERED    = "mmo_registered";
 string LD_POLL_INTERVAL = "mmo_poll_interval";
 string LD_CUSTOM_LINES  = "mmo_custom_lines";
 string LD_OWNER         = "mmo_owner";
+string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ────────────────────────────────────────────────────────────
 string  ha_url; // Set via: /5 seturl <url>
@@ -238,7 +239,7 @@ default {
         string stored_owner = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
             llLinksetDataDelete(LD_REGISTERED);
             llLinksetDataDelete(LD_POLL_INTERVAL);
             llLinksetDataDelete(LD_CUSTOM_LINES);
@@ -251,7 +252,7 @@ default {
         regRequestKey        = NULL_KEY;
 
         // Load HA URL from linkset data
-        ha_url = llLinksetDataRead(LD_HA_URL);
+        ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
         if (ha_url != "") {
             llOwnerSay("MMO Bridge: loaded HA URL from linkset data.");
         } else {
@@ -321,7 +322,7 @@ default {
                 return;
             }
             ha_url = new_url;
-            llLinksetDataWrite(LD_HA_URL, ha_url);
+            llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
             llOwnerSay("MMO Bridge: HA URL saved.");
             updateHoverText();
             registerWithHA();
@@ -400,7 +401,7 @@ default {
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO Bridge: clearing all stored data and resetting...");
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
             llLinksetDataDelete(LD_REGISTERED);
             llLinksetDataDelete(LD_POLL_INTERVAL);
             llLinksetDataDelete(LD_CUSTOM_LINES);
@@ -578,7 +579,7 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
             llLinksetDataDelete(LD_REGISTERED);
             llLinksetDataDelete(LD_POLL_INTERVAL);
             llLinksetDataDelete(LD_CUSTOM_LINES);

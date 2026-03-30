@@ -28,6 +28,7 @@ string LD_BRIDGE_KEY    = "mmohud_bridge_key";   // trusted bridge object UUID
 string LD_POLL_INTERVAL = "mmohud_poll_interval";
 string LD_HMAC_SECRET   = "mmohud_hmac_secret";  // per-avatar secret from HA
 string LD_OWNER         = "mmohud_owner";
+string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Shared channel — MUST match sl_notify_controller.lsl ─────────────────────
 integer BRIDGE_HUD_CHANNEL = -1296912194;
@@ -178,10 +179,10 @@ default {
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL,        LD_PASS);
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_HMAC_SECRET);
+            llLinksetDataDeleteProtected(LD_HMAC_SECRET,   LD_PASS);
             llLinksetDataWrite(LD_OWNER, current_owner);
         }
 
@@ -198,7 +199,7 @@ default {
         regRequestKey        = NULL_KEY;
 
         // Restore persisted settings
-        ha_url             = llLinksetDataRead(LD_HA_URL);
+        ha_url             = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
         trusted_bridge_key = llLinksetDataRead(LD_BRIDGE_KEY);
 
         if (ha_url != "")
@@ -249,7 +250,7 @@ default {
 
             ha_url             = new_ha_url;
             trusted_bridge_key = (string)id;
-            llLinksetDataWrite(LD_HA_URL,     ha_url);
+            llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
             llLinksetDataWrite(LD_BRIDGE_KEY, trusted_bridge_key);
 
             if (is_ready) {
@@ -269,7 +270,7 @@ default {
                 return;
             }
             ha_url = new_url;
-            llLinksetDataWrite(LD_HA_URL, ha_url);
+            llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
             trusted_bridge_key = "";
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llOwnerSay("MMO HUD: HA URL saved (bridge pairing cleared).");
@@ -298,7 +299,7 @@ default {
             string bridge_display = trusted_bridge_key;
             if (bridge_display == "") bridge_display = "(none — will accept next bridge)";
             string secret_display = "(not set)";
-            if (llLinksetDataRead(LD_HMAC_SECRET) != "") secret_display = "(set)";
+            if (llLinksetDataReadProtected(LD_HMAC_SECRET, LD_PASS) != "") secret_display = "(set)";
             llOwnerSay("HA URL      : " + url_display);
             llOwnerSay("Bridge key  : " + bridge_display);
             if (is_ready)
@@ -317,10 +318,10 @@ default {
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO HUD: clearing all stored data and resetting...");
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_HMAC_SECRET);
+            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
             llResetScript();
 
         } else {
@@ -380,9 +381,9 @@ default {
             // Store it into linkset data so sl_hud_commands.lsl can read it directly.
             string new_secret = llJsonGetValue(body, ["hmac_secret"]);
             if (new_secret != JSON_INVALID && new_secret != "") {
-                string current = llLinksetDataRead(LD_HMAC_SECRET);
+                string current = llLinksetDataReadProtected(LD_HMAC_SECRET, LD_PASS);
                 if (new_secret != current)
-                    llLinksetDataWrite(LD_HMAC_SECRET, new_secret);
+                    llLinksetDataWriteProtected(LD_HMAC_SECRET, new_secret, LD_PASS);
             }
         }
     }
@@ -397,10 +398,10 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDelete(LD_HA_URL);
+            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
             llLinksetDataDelete(LD_BRIDGE_KEY);
             llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_HMAC_SECRET);
+            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
             llLinksetDataDelete(LD_OWNER);
             llResetScript();
         }
