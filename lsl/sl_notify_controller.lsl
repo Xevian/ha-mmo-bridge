@@ -67,16 +67,19 @@ updateHoverText() {
     string  line2;
     vector  color;
 
+    string parcel_name = llList2String(llGetParcelDetails(llGetPos(), [PARCEL_DETAILS_NAME]), 0);
+    if (parcel_name == "") parcel_name = llGetRegionName();
+
     if (ha_url == "") {
-        line1 = "MMO Bridge";
+        line1 = "MMO Hub";
         line2 = "No HA URL — use /5 seturl";
         color = <1.0, 0.3, 0.3>;  // red
     } else if (!is_ready) {
-        line1 = "MMO Bridge | " + llGetRegionName();
+        line1 = "MMO Hub | " + parcel_name;
         line2 = "Connecting...";
         color = <1.0, 0.7, 0.0>;  // amber
     } else {
-        line1 = "MMO Bridge | " + llGetRegionName();
+        line1 = "MMO Hub | " + parcel_name;
         line2 = (string)last_online_count + " online / " + (string)reg_count + " registered";
         color = <0.3, 1.0, 0.3>;  // green
     }
