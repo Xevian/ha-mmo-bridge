@@ -172,6 +172,10 @@ showHelp() {
 
 default {
     state_entry() {
+        // Reset to base name immediately — ensures a clean name when boxing
+        // up for distribution rather than carrying a previous owner's parcel name.
+        llSetObjectName("MMO HUD");
+
         // Belt-and-braces ownership check — catches inventory copies where
         // CHANGED_OWNER never fires
         string stored_owner  = llLinksetDataRead(LD_OWNER);

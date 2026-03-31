@@ -165,6 +165,10 @@ showHelp() {
 
 default {
     state_entry() {
+        // Reset to base name immediately — gets updated with parcel name once ready.
+        // Ensures a clean name when boxing up for distribution.
+        llSetObjectName("MMO Node");
+
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {

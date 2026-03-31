@@ -247,6 +247,10 @@ showHelp() {
 
 default {
     state_entry() {
+        // Reset to base name immediately — gets updated with parcel name once ready.
+        // Ensures a clean name when boxing up for distribution.
+        llSetObjectName("MMO Hub");
+
         // Belt-and-braces ownership check — CHANGED_OWNER only fires for
         // in-world transfers. Inventory copies arrive already owned by the
         // recipient so we must detect the mismatch here and wipe stale data.
