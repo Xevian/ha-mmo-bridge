@@ -227,8 +227,10 @@ default {
             llOwnerSay("MMO HUD: not connected to HA yet.");
             return;
         }
-        // Delegate menu handling entirely to the command script
-        llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY);
+        // Delegate menu handling entirely to the command script.
+        // Pass ha_url directly so the command script doesn't need to read
+        // it from linkset data (avoids a race/protection read issue).
+        llMessageLinked(LINK_SET, MSG_OPEN_MENU, ha_url, NULL_KEY);
     }
 
     listen(integer channel, string name, key id, string msg) {

@@ -32,6 +32,7 @@ integer MSG_OPEN_MENU = 1001;  // main HUD → this script: open the script menu
 integer menu_channel;
 integer menu_listen_handle;
 list    cached_scripts;        // [id, name, id, name, ...]
+string  session_ha_url;        // ha_url passed from main HUD via link message
 key     scriptListRequestKey;
 key     commandRequestKey;
 integer SCRIPT_MENU_MAX  = 11;  // max script buttons (1 slot reserved for Cancel)
@@ -40,9 +41,9 @@ float   MENU_TIMEOUT_S   = 30.0; // auto-close listen if user ignores the dialog
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 requestScriptList() {
-    string ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
-    if (ha_url == "") {
-        llOwnerSay("MMO HUD: not connected to HA — no URL stored.");
+    // session_ha_url is set from the MSG_OPEN_MENU link message — no linkset read needed
+    if (session_ha_url == "") {
+        llOwnerSay("MMO HUD: not connected to HA — touch your bridge to get a URL.");
         return;
     }
     string payload = llList2Json(JSON_OBJECT, [
@@ -51,7 +52,7 @@ requestScriptList() {
         "type",     "hud_list_scripts",
         "avatar",   llKey2Name(llGetOwner())
     ]);
-    scriptListRequestKey = llHTTPRequest(ha_url,
+    scriptListRequestKey = llHTTPRequest(session_ha_url,
         [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
 }
 
@@ -80,15 +81,16 @@ showScriptMenu() {
 }
 
 sendCommand(string script_id) {
-    string ha_url      = llLinksetDataReadProtected(LD_HA_URL,      LD_PASS);
+    // URL comes from session_ha_url (set at menu-open time from main HUD).
+    // HMAC secret still comes from linkset data — written by main HUD on registration.
     string hmac_secret = llLinksetDataReadProtected(LD_HMAC_SECRET, LD_PASS);
 
-    if (hmac_secret == "") {
-        llOwnerSay("MMO HUD: no command token yet — try re-attaching the HUD.");
+    if (session_ha_url == "") {
+        llOwnerSay("MMO HUD: not connected to HA.");
         return;
     }
-    if (ha_url == "") {
-        llOwnerSay("MMO HUD: not connected to HA.");
+    if (hmac_secret == "") {
+        llOwnerSay("MMO HUD: no command token yet — try re-attaching the HUD.");
         return;
     }
 
@@ -105,7 +107,7 @@ sendCommand(string script_id) {
         "ts",     ts,
         "sig",    sig
     ]);
-    commandRequestKey = llHTTPRequest(ha_url,
+    commandRequestKey = llHTTPRequest(session_ha_url,
         [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
 }
 
@@ -125,10 +127,12 @@ default {
         scriptListRequestKey = NULL_KEY;
         commandRequestKey    = NULL_KEY;
         cached_scripts       = [];
+        session_ha_url       = "";
     }
 
     link_message(integer sender, integer num, string str, key id) {
         if (num == MSG_OPEN_MENU) {
+            session_ha_url = str;  // URL passed directly from main HUD's memory
             // Always fetch a fresh list so newly-labelled scripts appear immediately
             requestScriptList();
         }
