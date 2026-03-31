@@ -5,9 +5,9 @@
 // Home Assistant as attributes on the device tracker entity.
 //
 // A companion script (sl_hud_commands.lsl) in the same linkset handles the
-// touch menu and HMAC-signed script commands. Keeping them separate means
-// llHMAC signing only blocks the command script — this script stays fully
-// responsive for state polling and bridge communication.
+// touch menu and HMAC-signed script commands independently — llHMAC signing
+// only blocks that script, leaving this one fully responsive for state
+// polling and bridge communication.
 //
 // URL bootstrap (no manual typing needed):
 //   1. Touch the bridge object — it sends the HA URL to this HUD automatically.
@@ -33,9 +33,6 @@ string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset dat
 
 // ── Shared channel — MUST match sl_notify_controller.lsl ─────────────────────
 integer BRIDGE_HUD_CHANNEL = -1296912194;
-
-// ── Linked-message protocol — MUST match sl_hud_commands.lsl ─────────────────
-integer MSG_OPEN_MENU = 1001;  // → command script: open the script menu
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
@@ -225,15 +222,6 @@ default {
         hud_listen_handle = llListen(BRIDGE_HUD_CHANNEL, "", NULL_KEY, "");
 
         doRequestUrl();
-    }
-
-    touch_start(integer total) {
-        if (!is_ready || ha_url == "") {
-            llOwnerSay("MMO HUD: not connected to HA yet.");
-            return;
-        }
-        // Delegate menu handling entirely to the command script
-        llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY);
     }
 
     listen(integer channel, string name, key id, string msg) {

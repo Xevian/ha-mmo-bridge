@@ -8,12 +8,9 @@
 // main HUD. The main HUD stays responsive for state polling, bridge URL updates,
 // and chat commands while a command is being signed.
 //
-// Communication:
-//   Main HUD → this script:  llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY)
-//   This script reads ha_url and hmac_secret directly from linkset data
-//   (written there by the main HUD on registration).
-//
-// MSG constants MUST match sl_avatar_hud.lsl
+// touch_start is handled here directly — no inter-script messaging needed.
+// ha_url and hmac_secret are read from protected linkset data written by
+// the main HUD on registration.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Protocol version — MUST match sl_avatar_hud.lsl ──────────────────────────
@@ -24,9 +21,6 @@ string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.js
 string LD_HA_URL      = "mmohud_ha_url";
 string LD_HMAC_SECRET = "mmohud_hmac_secret";
 string LD_PASS        = "mmo_bridge";  // passphrase for protected linkset data (must match sl_avatar_hud.lsl)
-
-// ── Linked-message protocol — MUST match sl_avatar_hud.lsl ───────────────────
-integer MSG_OPEN_MENU = 1001;  // main HUD → this script: open the script menu
 
 // ── Menu state ────────────────────────────────────────────────────────────────
 integer menu_channel;
@@ -127,11 +121,10 @@ default {
         cached_scripts       = [];
     }
 
-    link_message(integer sender, integer num, string str, key id) {
-        if (num == MSG_OPEN_MENU) {
-            // Always fetch a fresh list so newly-labelled scripts appear immediately
-            requestScriptList();
-        }
+    touch_start(integer total) {
+        if (llDetectedKey(0) != llGetOwner()) return;
+        // Always fetch a fresh list so newly-labelled scripts appear immediately
+        requestScriptList();
     }
 
     listen(integer channel, string name, key id, string msg) {
