@@ -166,7 +166,13 @@ async def async_setup(hass, config):
             try:
                 await hass.services.async_call(
                     "script", "turn_on",
-                    {"entity_id": f"script.{script_id}"},
+                    {
+                        "entity_id": f"script.{script_id}",
+                        "variables": {
+                            "mmo_avatar": avatar,
+                            "mmo_world":  world,
+                        },
+                    },
                     blocking=False,
                 )
                 _LOGGER.info(
