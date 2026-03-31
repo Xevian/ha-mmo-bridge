@@ -18,6 +18,7 @@
 
 // ── Protocol version — MUST match sl_avatar_hud.lsl ──────────────────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys (shared with sl_avatar_hud.lsl — read-only here) ────────
 string LD_HA_URL      = "mmohud_ha_url";

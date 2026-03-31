@@ -1,6 +1,20 @@
 
+// ── MMO Bridge — Hub (Notify Controller) ─────────────────────────────────────
+//
+// Capabilities: presence, message, display
+//
+// Rez on your home parcel and set the object's group. Group members touch to
+// register — the Hub tracks online/offline presence and delivers IMs sent
+// from Home Assistant automations. It also pushes at-home detection (who is
+// physically on the parcel), live region/world data, and hover text lines
+// that HA can update remotely.
+//
+// Setup: /5 seturl <webhook URL including ?token=...>
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Protocol version — bump when making breaking payload changes ──────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys ───────────────────────────────────────────────────────
 string LD_HA_URL        = "mmo_ha_url";
@@ -340,6 +354,7 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO Bridge status ──");
+            llOwnerSay("Version   : " + SCRIPT_VERSION + " (protocol v" + (string)PROTOCOL_VERSION + ")");
             llOwnerSay("HA URL    : " + ha_url);
             if (is_ready)
                 llOwnerSay("Script URL: " + my_url);

@@ -21,6 +21,7 @@
 
 // ── Protocol version — bump when making breaking payload changes ──────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmohud_ha_url";
@@ -294,6 +295,7 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO HUD status ──");
+            llOwnerSay("Version     : " + SCRIPT_VERSION + " (protocol v" + (string)PROTOCOL_VERSION + ")");
             string url_display    = ha_url;
             if (url_display    == "") url_display    = "(not set)";
             string bridge_display = trusted_bridge_key;

@@ -13,6 +13,7 @@
 
 // ── Protocol version — bump when making breaking payload changes ──────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmostats_ha_url";
@@ -241,6 +242,7 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO Stats status ──");
+            llOwnerSay("Version   : " + SCRIPT_VERSION + " (protocol v" + (string)PROTOCOL_VERSION + ")");
             llOwnerSay("HA URL    : " + ha_url);
             if (is_ready)
                 llOwnerSay("Script URL: " + my_url);
