@@ -88,10 +88,10 @@ Assistant as graphable sensors:
 
 Rez the MMO Node somewhere on the parcel that
 stays rezzed permanently (a skybox or ground
-platform works well). Set it up the same way
-as the MMO Hub:
+platform works well). It uses channel /4 so it
+doesn't clash with the Hub's /5 commands:
 
-  /5 seturl <your webhook URL>
+  /4 seturl <your webhook URL>
 
 It registers with HA automatically and starts
 pushing stats on its own poll cycle. The MMO

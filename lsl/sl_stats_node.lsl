@@ -8,7 +8,7 @@
 // It does NOT manage avatar registration or deliver IMs — use
 // sl_notify_controller.lsl for that.
 //
-// Setup: /5 seturl <webhook URL including ?token=...>
+// Setup: /4 seturl <webhook URL including ?token=...>
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Protocol version — bump when making breaking payload changes ──────────────
@@ -25,7 +25,7 @@ string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset dat
 string  ha_url;
 string  my_url;
 list    custom_lines;             // [key, value, key, value, ...] pushed from HA
-integer CMD_CHANNEL  = 5;
+integer CMD_CHANNEL  = 4;
 integer listen_handle;
 
 // ── URL request management ────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ sendStatsNow() {
 }
 
 showHelp() {
-    llOwnerSay("MMO Stats — chat commands on channel " + (string)CMD_CHANNEL + ":");
+    llOwnerSay("MMO Stats Node — chat commands on channel /" + (string)CMD_CHANNEL + ":");
     llOwnerSay("  seturl <url>   — save HA webhook URL and re-register");
     llOwnerSay("  setpoll <sec>  — set stats poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show current status");
@@ -219,7 +219,7 @@ default {
         if (llGetSubString(msg, 0, 6) == "seturl ") {
             string new_url = llStringTrim(llGetSubString(msg, 7, -1), STRING_TRIM);
             if (new_url == "") {
-                llOwnerSay("Usage: /5 seturl <full webhook URL including ?token=...>");
+                llOwnerSay("Usage: /4 seturl <full webhook URL including ?token=...>");
                 return;
             }
             ha_url = new_url;
