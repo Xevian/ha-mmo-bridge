@@ -180,10 +180,7 @@ default {
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDeleteProtected(LD_HA_URL,        LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET,   LD_PASS);
+            llLinksetDataReset();  // wipes protected + unprotected entries alike
             llLinksetDataWrite(LD_OWNER, current_owner);
         }
 
@@ -200,7 +197,15 @@ default {
         regRequestKey        = NULL_KEY;
 
         // Restore persisted settings
-        ha_url             = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        if (ha_url == "") {
+            // Migrate unprotected entry written by scripts before v0.2.1
+            ha_url = llLinksetDataRead(LD_HA_URL);
+            if (ha_url != "") {
+                llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
+                llLinksetDataDelete(LD_HA_URL);
+            }
+        }
         trusted_bridge_key = llLinksetDataRead(LD_BRIDGE_KEY);
 
         if (ha_url != "")
@@ -227,10 +232,8 @@ default {
             llOwnerSay("MMO HUD: not connected to HA yet.");
             return;
         }
-        // Delegate menu handling entirely to the command script.
-        // Pass ha_url directly so the command script doesn't need to read
-        // it from linkset data (avoids a race/protection read issue).
-        llMessageLinked(LINK_SET, MSG_OPEN_MENU, ha_url, NULL_KEY);
+        // Delegate menu handling entirely to the command script
+        llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY);
     }
 
     listen(integer channel, string name, key id, string msg) {
@@ -322,10 +325,7 @@ default {
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO HUD: clearing all stored data and resetting...");
-            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
+            llLinksetDataReset();
             llResetScript();
 
         } else {
@@ -402,11 +402,7 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
-            llLinksetDataDelete(LD_OWNER);
+            llLinksetDataReset();
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {

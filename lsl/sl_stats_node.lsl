@@ -168,9 +168,7 @@ default {
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataReset();  // wipes protected + unprotected entries alike
             llLinksetDataWrite(LD_OWNER, current_owner);
         }
 
@@ -181,6 +179,14 @@ default {
 
         // Load HA URL
         ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        if (ha_url == "") {
+            // Migrate unprotected entry written by scripts before v0.2.1
+            ha_url = llLinksetDataRead(LD_HA_URL);
+            if (ha_url != "") {
+                llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
+                llLinksetDataDelete(LD_HA_URL);
+            }
+        }
         if (ha_url != "")
             llOwnerSay("MMO Stats: loaded HA URL from linkset data.");
         else
@@ -260,9 +266,7 @@ default {
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO Stats: clearing all stored data and resetting...");
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataReset();
             llResetScript();
 
         } else {
@@ -359,10 +363,7 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
-            llLinksetDataDelete(LD_OWNER);
+            llLinksetDataReset();
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {
