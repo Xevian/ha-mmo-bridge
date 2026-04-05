@@ -204,6 +204,22 @@ default {
         // Ensures a clean name when boxing up for distribution.
         llSetObjectName("MMO Node");
 
+        // ── Security checks — abort if not properly locked down ───────────────
+        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+            llSetText("MMO Node\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
+                + "still has Modify permission for the next owner. Set the OBJECT and "
+                + "ALL scripts to No-Modify for Next Owner, then Reset Script.");
+            return;
+        }
+        if (LD_PASS == "mmo_bridge") {
+            llSetText("MMO Node\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts, then Reset Script.");
+            return;
+        }
+
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {

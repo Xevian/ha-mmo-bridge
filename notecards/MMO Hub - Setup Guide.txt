@@ -8,6 +8,42 @@ you're online, send you messages in-world, and
 run automations based on your status.
 
 ───────────────────────────────────────────────
+  OWNER: SECURITY SETUP (do this first!)
+───────────────────────────────────────────────
+
+Before the scripts will run, you must do two
+things — the scripts print a warning and refuse
+to start until both are complete.
+
+1. CHANGE LD_PASS IN ALL FOUR SCRIPTS
+
+   Open each script and change the line:
+     string LD_PASS = "mmo_bridge";
+   to a unique passphrase of your choosing.
+
+   All four scripts must use the SAME value:
+     • sl_notify_controller.lsl  (Hub)
+     • sl_stats_node.lsl         (Node)
+     • sl_avatar_hud.lsl         (HUD)
+     • sl_hud_commands.lsl       (HUD Commands)
+
+   The default "mmo_bridge" is public — anyone
+   who knows the source code could use it to
+   read your protected linkset data.
+
+2. SET NO-MODIFY FOR THE NEXT OWNER
+
+   Right-click each script → Properties →
+   uncheck Modify under Next Owner.
+   Do the same for the object itself.
+
+   If Modify is left on, someone who gets a
+   copy could add a script to read your HA URL.
+
+   (Your own Modify permission is unaffected —
+   only the next-owner permission matters here.)
+
+───────────────────────────────────────────────
   STEP 1 — Rez the MMO Hub
 ───────────────────────────────────────────────
 

@@ -299,6 +299,28 @@ default {
         // Ensures a clean name when boxing up for distribution.
         llSetObjectName("MMO Hub");
 
+        // ── Security checks — abort if not properly locked down ───────────────
+        // Check both the object AND this script for next-owner Modify permission.
+        // If either is set, anyone receiving a copy can add/read scripts and
+        // extract your HA credentials. Set both to No-Modify before deploying.
+        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+            llSetText("MMO Hub\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
+                + "still has Modify permission for the next owner. Anyone receiving a "
+                + "copy could add scripts to read your HA credentials. Set the OBJECT "
+                + "and ALL scripts to No-Modify for Next Owner, then Reset Script.");
+            return;
+        }
+        // Refuse to run on the default passphrase — change LD_PASS to something
+        // unique in all four scripts before use. The default is public knowledge.
+        if (LD_PASS == "mmo_bridge") {
+            llSetText("MMO Hub\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts (Hub, Node, HUD, HUD Commands), then Reset Script.");
+            return;
+        }
+
         // Belt-and-braces ownership check — CHANGED_OWNER only fires for
         // in-world transfers. Inventory copies arrive already owned by the
         // recipient so we must detect the mismatch here and wipe stale data.

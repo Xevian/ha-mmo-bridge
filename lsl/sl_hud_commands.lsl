@@ -107,6 +107,20 @@ sendCommand(string script_id) {
 
 default {
     state_entry() {
+        // ── Security checks — abort if not properly locked down ───────────────
+        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
+                + "still has Modify permission for the next owner. Set the OBJECT and "
+                + "ALL scripts to No-Modify for Next Owner before distributing.");
+            return;
+        }
+        if (LD_PASS == "mmo_bridge") {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts, then Reset Script.");
+            return;
+        }
+
         // Linkset data is owned and wiped by sl_avatar_hud.lsl on owner change —
         // no independent wipe needed here, but reset menu state cleanly regardless.
 

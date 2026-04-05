@@ -176,6 +176,21 @@ default {
         // up for distribution rather than carrying a previous owner's parcel name.
         llSetObjectName("MMO HUD");
 
+        // ── Security checks — abort if not properly locked down ───────────────
+        // HUD is distributed to other players — must be No-Modify before handing out.
+        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
+                + "still has Modify permission for the next owner. Set the OBJECT and "
+                + "ALL scripts to No-Modify for Next Owner before distributing.");
+            return;
+        }
+        if (LD_PASS == "mmo_bridge") {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts, then Reset Script.");
+            return;
+        }
+
         // Belt-and-braces ownership check — catches inventory copies where
         // CHANGED_OWNER never fires
         string stored_owner  = llLinksetDataRead(LD_OWNER);

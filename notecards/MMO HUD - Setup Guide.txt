@@ -98,6 +98,17 @@ connection.
 Script commands are cryptographically signed
 so they can't be faked or replayed.
 
+The HUD scripts are set to No-Modify — this is
+intentional. It prevents anyone from tampering
+with the scripts to extract credentials. If the
+HUD refuses to start, ask the owner to check
+their security setup.
+
+If you receive a HUD that shows a security
+warning in chat, let the owner know — they
+need to change LD_PASS and set No-Modify
+before distributing.
+
 ───────────────────────────────────────────────
   TROUBLESHOOTING
 ───────────────────────────────────────────────
