@@ -184,6 +184,22 @@ async def async_setup(hass, config):
 
             return web.json_response({"protocol": PROTOCOL_VERSION, "status": "ok"})
 
+        # ── In-world trigger relay ────────────────────────────────────────────
+        if payload_type == "inworld_trigger":
+            trigger_name = data.get("trigger", "")
+            if not trigger_name:
+                return web.Response(status=400, text="missing trigger field")
+            # Pass all fields through; ensure world and node_id are present
+            event_data          = dict(data)
+            event_data["world"]   = world
+            event_data["node_id"] = node_id
+            hass.bus.async_fire(f"{DOMAIN}_inworld_trigger", event_data)
+            _LOGGER.info(
+                "inworld_trigger: '%s' from '%s' in '%s'",
+                trigger_name, data.get("owner", "unknown"), world,
+            )
+            return web.Response(text="OK")
+
         # ── Standard node/presence/state processing ───────────────────────────
         raw_node_id  = data.get("node_id", "")
         node_id      = slugify(raw_node_id) if raw_node_id else "default"

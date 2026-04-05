@@ -20,14 +20,17 @@ string LD_HA_URL        = "mmostats_ha_url";
 string LD_POLL_INTERVAL = "mmostats_poll_interval";
 string LD_CUSTOM_LINES  = "mmostats_custom_lines";
 string LD_OWNER         = "mmostats_owner";
+string LD_TRIG_CHANNEL  = "mmostats_trig_channel";  // stored as string; absent = disabled
 string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
 string  my_url;
 list    custom_lines;             // [key, value, key, value, ...] pushed from HA
-integer CMD_CHANNEL  = 4;
+integer CMD_CHANNEL        = 4;
 integer listen_handle;
+integer trig_channel       = 0;            // 0 = trigger relay disabled
+integer trig_listen_handle = 0;
 
 // ── URL request management ────────────────────────────────────────────────────
 key     urlRequestId;
@@ -157,8 +160,40 @@ showHelp() {
     llOwnerSay("  setpoll <sec>  — set stats poll interval (min 10s, default 60s)");
     llOwnerSay("  status         — show current status");
     llOwnerSay("  push           — force an immediate stats push to HA");
+    llOwnerSay("  settrigchan    — enable/rotate trigger relay (random negative channel)");
+    llOwnerSay("  settrigchan <n>— set trigger relay to specific negative channel");
     llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
+}
+
+// ── Trigger relay ─────────────────────────────────────────────────────────────
+
+integer genTrigChannel() {
+    return -100000 - (integer)llFrand(2000000000.0);
+}
+
+startTrigListener() {
+    if (trig_listen_handle) llListenRemove(trig_listen_handle);
+    trig_listen_handle = llListen(trig_channel, "", NULL_KEY, "");
+}
+
+handleTriggerRelay(key sender_id, string payload) {
+    // 1. Validate JSON — trigger field must be present and non-empty
+    string trigger_val = llJsonGetValue(payload, ["trigger"]);
+    if (trigger_val == JSON_INVALID || trigger_val == "") return;
+
+    // 2. Node only accepts from objects owned by the Node owner
+    list obj_details = llGetObjectDetails(sender_id, [OBJECT_OWNER]);
+    if (!llGetListLength(obj_details)) return;
+    if ((key)llList2String(obj_details, 0) != llGetOwner()) return;
+
+    // 3. Inject metadata and relay to HA
+    string out = payload;
+    out = llJsonSetValue(out, ["type"],    "inworld_trigger");
+    out = llJsonSetValue(out, ["world"],   "secondlife");
+    out = llJsonSetValue(out, ["node_id"], computeNodeId());
+    out = llJsonSetValue(out, ["owner"],   llKey2Name(llGetOwner()));
+    llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], out);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -207,6 +242,16 @@ default {
         else
             custom_lines = [];
 
+        // Restore trigger relay channel (absent = disabled)
+        trig_channel       = 0;
+        trig_listen_handle = 0;
+        string stored_trig = llLinksetDataRead(LD_TRIG_CHANNEL);
+        if (stored_trig != "") {
+            trig_channel = (integer)stored_trig;
+            startTrigListener();
+            llOwnerSay("MMO Stats: trigger relay active on channel " + (string)trig_channel + ".");
+        }
+
         // Start listening for owner commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
@@ -225,6 +270,12 @@ default {
     }
 
     listen(integer channel, string name, key id, string msg) {
+        // Trigger relay — from in-world scripted objects to HA
+        if (trig_channel != 0 && channel == trig_channel) {
+            handleTriggerRelay(id, msg);
+            return;
+        }
+
         msg = llStringTrim(msg, STRING_TRIM);
 
         if (llGetSubString(msg, 0, 6) == "seturl ") {
@@ -260,10 +311,41 @@ default {
                 llOwnerSay("Script URL: (not ready)");
             llOwnerSay("Node ID   : " + computeNodeId());
             llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
+            if (trig_channel != 0)
+                llOwnerSay("Trig chan  : " + (string)trig_channel);
+            else
+                llOwnerSay("Trig chan  : disabled  (/4 settrigchan to enable)");
 
         } else if (msg == "push") {
             llOwnerSay("MMO Stats: forcing stats push to HA...");
             sendStatsNow();
+
+        } else if (msg == "settrigchan") {
+            integer old_chan = trig_channel;
+            trig_channel = genTrigChannel();
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (old_chan != 0)
+                llOwnerSay("Trigger channel rotated from " + (string)old_chan
+                    + " to " + (string)trig_channel + ". Update your trigger objects.");
+            else
+                llOwnerSay("Trigger relay enabled. Channel: " + (string)trig_channel
+                    + ". Add this to your trigger objects.");
+
+        } else if (llGetSubString(msg, 0, 11) == "settrigchan ") {
+            integer new_chan = (integer)llStringTrim(llGetSubString(msg, 12, -1), STRING_TRIM);
+            if (new_chan >= 0) {
+                llOwnerSay("Trigger channel must be negative (e.g. /4 settrigchan -12345678).");
+                return;
+            }
+            integer was_disabled = (trig_channel == 0);
+            trig_channel = new_chan;
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (was_disabled)
+                llOwnerSay("Trigger relay enabled on channel " + (string)trig_channel + ".");
+            else
+                llOwnerSay("Trigger channel updated to " + (string)trig_channel + ".");
 
         } else if (msg == "help") {
             showHelp();

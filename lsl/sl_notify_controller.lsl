@@ -22,6 +22,7 @@ string LD_REGISTERED    = "mmo_registered";
 string LD_POLL_INTERVAL = "mmo_poll_interval";
 string LD_CUSTOM_LINES  = "mmo_custom_lines";
 string LD_OWNER         = "mmo_owner";
+string LD_TRIG_CHANNEL  = "mmo_trig_channel";  // stored as string; absent = disabled
 string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -32,6 +33,8 @@ list    custom_lines;                      // [key, value, key, value, ...] push
 integer CMD_CHANNEL        = 5;            // Owner chat: /5 <command>
 integer listen_handle;
 integer hud_listen_handle;
+integer trig_channel       = 0;            // 0 = trigger relay disabled
+integer trig_listen_handle = 0;
 
 // Shared private channel for bridge↔HUD URL bootstrap.
 // Must match the constant in sl_avatar_hud.lsl.
@@ -239,8 +242,53 @@ showHelp() {
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
     llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  settrigchan    — enable/rotate trigger relay (random negative channel)");
+    llOwnerSay("  settrigchan <n>— set trigger relay to specific negative channel");
     llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
+}
+
+// ── Trigger relay ────────────────────────────────────────────────────────────
+
+integer genTrigChannel() {
+    // Negative channels can't be triggered from in-world chat — scripts only.
+    // Avoid -1 (DEBUG_CHANNEL) and small values.
+    return -100000 - (integer)llFrand(2000000000.0);
+}
+
+startTrigListener() {
+    if (trig_listen_handle) llListenRemove(trig_listen_handle);
+    trig_listen_handle = llListen(trig_channel, "", NULL_KEY, "");
+}
+
+handleTriggerRelay(key sender_id, string payload) {
+    // 1. Validate JSON — trigger field must be present and non-empty
+    string trigger_val = llJsonGetValue(payload, ["trigger"]);
+    if (trigger_val == JSON_INVALID || trigger_val == "") return;
+
+    // 2. Check object owner is a registered avatar
+    list obj_details = llGetObjectDetails(sender_id, [OBJECT_OWNER]);
+    if (!llGetListLength(obj_details)) return;
+    key    sender_owner = (key)llList2String(obj_details, 0);
+    string owner_name   = "";
+    integer len = llGetListLength(registered);
+    integer i;
+    for (i = 0; i < len; i += 2) {
+        if ((key)llList2String(registered, i) == sender_owner) {
+            owner_name = llList2String(registered, i + 1);
+            jump owner_ok;
+        }
+    }
+    return;  // owner not in registered list — silently drop
+    @owner_ok;
+
+    // 3. Inject metadata and relay to HA
+    string out = payload;
+    out = llJsonSetValue(out, ["type"],    "inworld_trigger");
+    out = llJsonSetValue(out, ["world"],   "secondlife");
+    out = llJsonSetValue(out, ["node_id"], computeNodeId());
+    out = llJsonSetValue(out, ["owner"],   owner_name);
+    llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], out);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -302,6 +350,16 @@ default {
         else
             custom_lines = [];
 
+        // Restore trigger relay channel (absent = disabled)
+        trig_channel       = 0;
+        trig_listen_handle = 0;
+        string stored_trig = llLinksetDataRead(LD_TRIG_CHANNEL);
+        if (stored_trig != "") {
+            trig_channel = (integer)stored_trig;
+            startTrigListener();
+            llOwnerSay("MMO Bridge: trigger relay active on channel " + (string)trig_channel + ".");
+        }
+
         // Start listening for owner commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
@@ -324,6 +382,12 @@ default {
     }
 
     listen(integer channel, string name, key id, string msg) {
+        // Trigger relay — from in-world scripted objects to HA
+        if (trig_channel != 0 && channel == trig_channel) {
+            handleTriggerRelay(id, msg);
+            return;
+        }
+
         // HUD requesting a URL update — respond only if avatar is registered
         if (channel == BRIDGE_HUD_CHANNEL) {
             string type   = llJsonGetValue(msg, ["type"]);
@@ -370,6 +434,10 @@ default {
             else
                 llOwnerSay("Script URL: (not ready)");
             llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
+            if (trig_channel != 0)
+                llOwnerSay("Trig chan  : " + (string)trig_channel);
+            else
+                llOwnerSay("Trig chan  : disabled  (/5 settrigchan to enable)");
             integer reg_count = llGetListLength(registered) / 2;
             llOwnerSay("Registered: " + (string)reg_count + " avatar(s)");
             integer si;
@@ -419,6 +487,35 @@ default {
             llLinksetDataDelete(LD_REGISTERED);
             updateHoverText();
             llOwnerSay("MMO Bridge: all registered avatars cleared.");
+
+        } else if (msg == "settrigchan") {
+            // No arg: generate/rotate random negative channel
+            integer old_chan = trig_channel;
+            trig_channel = genTrigChannel();
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (old_chan != 0)
+                llOwnerSay("Trigger channel rotated from " + (string)old_chan
+                    + " to " + (string)trig_channel + ". Update your trigger objects.");
+            else
+                llOwnerSay("Trigger relay enabled. Channel: " + (string)trig_channel
+                    + ". Add this to your trigger objects.");
+
+        } else if (llGetSubString(msg, 0, 11) == "settrigchan ") {
+            // Arg given: set specific channel (must be negative)
+            integer new_chan = (integer)llStringTrim(llGetSubString(msg, 12, -1), STRING_TRIM);
+            if (new_chan >= 0) {
+                llOwnerSay("Trigger channel must be negative (e.g. /5 settrigchan -12345678).");
+                return;
+            }
+            integer was_disabled = (trig_channel == 0);
+            trig_channel = new_chan;
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (was_disabled)
+                llOwnerSay("Trigger relay enabled on channel " + (string)trig_channel + ".");
+            else
+                llOwnerSay("Trigger channel updated to " + (string)trig_channel + ".");
 
         } else if (msg == "help") {
             showHelp();
