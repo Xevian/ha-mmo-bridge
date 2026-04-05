@@ -61,7 +61,7 @@ updateHoverText() {
 
     if (ha_url == "") {
         line1 = "MMO Node";
-        line2 = "No HA URL — use /5 seturl";
+        line2 = "No HA URL — use /4 seturl";
         color = <1.0, 0.3, 0.3>;  // red
     } else if (!is_ready) {
         line1 = "MMO Node | " + parcel_name;
@@ -229,7 +229,7 @@ default {
         if (ha_url != "")
             llOwnerSay("MMO Stats: loaded HA URL from linkset data.");
         else
-            llOwnerSay("MMO Stats: no HA URL configured. Use /5 seturl <url> to set it.");
+            llOwnerSay("MMO Stats: no HA URL configured. Use /4 seturl <url> to set it.");
 
         // Load poll interval
         string stored_poll = llLinksetDataRead(LD_POLL_INTERVAL);
@@ -356,7 +356,7 @@ default {
             llResetScript();
 
         } else {
-            llOwnerSay("Unknown command. Type /5 help for available commands.");
+            llOwnerSay("Unknown command. Type /4 help for available commands.");
         }
     }
 

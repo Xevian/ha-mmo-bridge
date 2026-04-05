@@ -189,10 +189,11 @@ async def async_setup(hass, config):
             trigger_name = data.get("trigger", "")
             if not trigger_name:
                 return web.Response(status=400, text="missing trigger field")
+            raw_nid = data.get("node_id", "")
             # Pass all fields through; ensure world and node_id are present
             event_data          = dict(data)
             event_data["world"]   = world
-            event_data["node_id"] = node_id
+            event_data["node_id"] = slugify(raw_nid) if raw_nid else "default"
             hass.bus.async_fire(f"{DOMAIN}_inworld_trigger", event_data)
             _LOGGER.info(
                 "inworld_trigger: '%s' from '%s' in '%s'",
