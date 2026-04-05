@@ -53,6 +53,7 @@ async def async_setup(hass, config):
     # avatar_hmac_secrets[avatar_slug] = hex_secret  (persisted)
     hass.data[DOMAIN]["nodes"]               = {}
     hass.data[DOMAIN]["online_by_world"]     = {}
+    hass.data[DOMAIN]["node_online"]         = {}  # node_online[world][node_id] = set of names
     hass.data[DOMAIN]["avatar_home"]         = {}
     hass.data[DOMAIN]["known_avatars"]       = {}
     hass.data[DOMAIN]["avatar_state"]        = {}
@@ -262,9 +263,19 @@ async def async_setup(hass, config):
             if world not in hass.data[DOMAIN]["online_by_world"]:
                 hass.data[DOMAIN]["online_by_world"][world] = []
                 hass.data[DOMAIN]["avatar_home"][world]     = {}
+            if world not in hass.data[DOMAIN]["node_online"]:
+                hass.data[DOMAIN]["node_online"][world] = {}
+
+            # Store this node's view of who is online, then merge across all
+            # nodes for the world. This prevents one Hub from wiping presence
+            # data reported by a different Hub (e.g. a housemate's Hub).
+            hass.data[DOMAIN]["node_online"][world][node_id] = set(data["online"])
+            merged_online = set()
+            for node_set in hass.data[DOMAIN]["node_online"][world].values():
+                merged_online.update(node_set)
 
             old_online = set(hass.data[DOMAIN]["online_by_world"][world])
-            new_online = set(data["online"])
+            new_online = merged_online
 
             for avatar in new_online - old_online:
                 _LOGGER.debug("%s came online in %s", avatar, world)
@@ -273,12 +284,14 @@ async def async_setup(hass, config):
                 _LOGGER.debug("%s went offline in %s", avatar, world)
                 hass.bus.async_fire(f"{DOMAIN}_avatar_offline", {"world": world, "avatar": avatar})
 
-            hass.data[DOMAIN]["online_by_world"][world] = data["online"]
+            hass.data[DOMAIN]["online_by_world"][world] = list(new_online)
 
-            # Update at-home status for each online avatar
+            # Update at-home status only for avatars this specific node tracks.
+            # Each Hub only knows about the avatars registered with IT, so we
+            # must not let one Hub overwrite another Hub's at-home data.
             if "at_home" in data:
                 at_home_set = set(data["at_home"])
-                for avatar in new_online:
+                for avatar in data["online"]:
                     hass.data[DOMAIN]["avatar_home"][world][avatar] = avatar in at_home_set
 
             # Region restart event

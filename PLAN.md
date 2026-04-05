@@ -102,6 +102,30 @@ These are protocol-level changes that need coordinated updates across
 LSL scripts and the HA integration. Keeping them together avoids
 multiple breaking-change releases.
 
+### `llRequestSecureURL` — HTTPS for HA→SL commands
+- **Problem:** Hub/HUD currently use `llRequestURL` which gives plain
+  `http://` URLs. HA sends commands (refresh, send_message, region_say,
+  set_text) to these URLs — traffic is unencrypted in transit.
+- **Fix:** switch all scripts to `llRequestSecureURL`. SL returns an
+  `https://` URL signed by the Linden Lab internal CA (not a public CA).
+- **Caveat:** HA's aiohttp client will reject the connection because it
+  doesn't trust the Linden CA by default. Two options:
+  1. **Ship the Linden CA cert** with the integration (e.g.
+     `custom_components/mmo_bridge/linden_ca.crt`) and build a custom
+     `ssl.SSLContext` that trusts it; pass to every outbound aiohttp call.
+     Clean, self-contained, no user action required.
+  2. **Disable SSL verification** (`ssl=False` in aiohttp) — easy but
+     defeats the point of HTTPS. Not recommended.
+- **Note:** the SL→HA direction (Hub POSTing to the HA webhook) is
+  already HTTPS if the user's HA instance has a valid TLS cert — no
+  change needed there.
+- **LSL change:** `llRequestURL()` → `llRequestSecureURL()` in all four
+  scripts (no other changes needed).
+- **HA change:** load `linden_ca.crt` on startup, create `SSLContext`,
+  pass to all `session.post()` calls targeting SL URLs.
+- **Effort:** small once the CA cert is sourced. Check the SL wiki /
+  Linden cert bundle for the correct CA to ship.
+
 ### UUID as primary key for avatars and parcels
 - **Problem:** legacy names can be changed (paid service); parcel names
   change freely. Using names as keys causes entity churn in HA.
@@ -111,6 +135,10 @@ multiple breaking-change releases.
   as `node_id` instead of slugified parcel name.
 - **HA entity names:** slugify UUID for entity_id; keep `friendly_name`
   human-readable and updatable without breaking history.
+- **Side-effect fix:** `node_online` merge (0.2.1) keys by name — if
+  `llDetectedName(0)` (Hub registration, display name) differs from
+  `llKey2Name()` (HUD avatar_state, legacy name), the same avatar appears
+  under two keys. UUID as primary key eliminates this entirely.
 - Needs protocol version bump → `PROTOCOL_VERSION = 2`.
 
 ### UTF-8 display names
@@ -119,6 +147,31 @@ multiple breaking-change releases.
   constraint for anything going SL→HA.
 - For HA `friendly_name` (stored in HA, never sent to LSL) this is fine
   immediately once UUID tracking is in place.
+
+### Stale `node_online` on silent Hub removal
+- **Problem:** if a Hub's object is returned/deleted without `hardreset`
+  (so `on_rez`/`changed` never fires), HA never receives `online: []`
+  from it. That Hub's entry stays in `node_online` indefinitely, keeping
+  its avatars showing as online in HA forever.
+- **Fix:** add a `node_last_seen[world][node_id]` timestamp; expire
+  stale node entries after N × poll_interval (e.g. 5 missed cycles).
+  Requires HA to know each node's poll interval, or use a fixed TTL.
+- **Workaround until fixed:** Hub owners should always `/5 hardreset`
+  before removing the object. Document in setup guide.
+- **Effort:** small–medium.
+
+### HA restart leaves avatar state stale until next HUD push
+- **Problem:** after an HA restart `avatar_state` is empty. The HUD
+  only pushes on change, so `afk`/`busy`/region/parcel attributes are
+  absent on the device tracker until Aki's state next changes in-world.
+  Presence (online/home) is restored by the Hub on its next poll; only
+  the HUD-sourced attributes lag.
+- **Fix:** HA could send a `{"command": "refresh"}` to known HUD URLs
+  on startup, but the HUD doesn't currently register an HTTP-in URL as
+  a node — that would require per-avatar URL tracking (ties into the
+  HUD URL push design in the two-way dialog notes).
+- **Workaround:** `/6 push` forces an immediate HUD state push.
+- **Effort:** medium (depends on HUD URL registration feature).
 
 ### Proper HACS packaging
 - `config_flow.py` + `async_setup_entry` for UI-based setup
@@ -141,6 +194,8 @@ multiple breaking-change releases.
 | 0.2.1 | `mmo_avatar` / `mmo_world` passed as HA script variables on HUD command |
 | 0.2.1 | `llSetObjectName()` to base name on state_entry (clean boxing) |
 | 0.2.1 | `touch_start` moved entirely to commands script; HUD decoupled |
+| 0.2.1 | Per-node `node_online` merge — presence from multiple Hubs no longer overwrites each other |
+| 0.2.1 | `at_home` scoped per-node — a Hub can only update at_home for avatars registered with it |
 | 0.2.1 | `_ascii_safe()` in notify.py — fixes `°` → `Â°` LSL mojibake |
 | 0.2.1 | `mmo_bridge.region_say` service + `region_say` command in Hub/Node |
 | 0.2.1 | Inworld trigger relay (`settrigchan`, `mmo_bridge_inworld_trigger` event) |
