@@ -13,6 +13,8 @@ Connects your Second Life avatar to Home Assistant. Track who is online, monitor
 - **In-world IMs** — send messages to registered avatars from any HA automation
 - **HA script menu** — touch the HUD in-world to run labelled HA scripts (lights, scenes, etc.)
 - **Hover text control** — push live status lines to in-world objects from HA automations
+- **Region announcements** — broadcast messages to local or region-wide chat from HA automations
+- **Inworld trigger relay** — in-world scripted objects (doorbell, vendor, NPC) fire HA events that automations can act on
 
 ---
 
@@ -73,6 +75,9 @@ The object registers with HA and shows a colour-coded hover text:
 | `/5 remove <name>` | Remove an avatar by display name |
 | `/5 clearusers` | Remove all registered avatars |
 | `/5 push` | Force an immediate presence push |
+| `/5 settrigchan` | Enable trigger relay / rotate to a new random channel |
+| `/5 settrigchan <n>` | Set trigger relay to a specific negative channel |
+| `/5 hardreset` | Clear all stored data and reset (use when moving to new HA) |
 | `/5 help` | Show available commands |
 
 ---
@@ -84,18 +89,21 @@ The object registers with HA and shows a colour-coded hover text:
 Pushes region FPS, time dilation, agent counts, and sim info to HA as graphable sensors. Best placed somewhere that stays rezzed permanently (a skybox, home parcel, etc.).
 
 ```
-/5 seturl https://your-ha.example.com/api/webhook/mmo_bridge?token=YOUR_TOKEN
+/4 seturl https://your-ha.example.com/api/webhook/mmo_bridge?token=YOUR_TOKEN
 ```
 
-**Stats commands** (owner only, channel `/5`):
+**Stats commands** (owner only, channel `/4`):
 
 | Command | Description |
 |---|---|
-| `/5 seturl <url>` | Save HA webhook URL |
-| `/5 setpoll <sec>` | Stats push interval (min 10s, default 60s) |
-| `/5 status` | Current status and node ID |
-| `/5 push` | Force an immediate stats push |
-| `/5 help` | Show available commands |
+| `/4 seturl <url>` | Save HA webhook URL |
+| `/4 setpoll <sec>` | Stats push interval (min 10s, default 60s) |
+| `/4 status` | Current status and node ID |
+| `/4 push` | Force an immediate stats push |
+| `/4 settrigchan` | Enable trigger relay / rotate to a new random channel |
+| `/4 settrigchan <n>` | Set trigger relay to a specific negative channel |
+| `/4 hardreset` | Clear all stored data and reset |
+| `/4 help` | Show available commands |
 
 ---
 
@@ -235,6 +243,29 @@ data:
   # node_id: "xev_getaway"  # omit to send to all display nodes
 ```
 
+### `mmo_bridge.region_say`
+
+Send a message to in-world chat via the Bridge or Stats Node object. `channel: 0` uses `llSay` (visible in local chat, ~20m radius). Any other channel uses `llRegionSay`, which reaches all listeners on that channel anywhere in the region — useful for NPC scripts or HUDs listening on a shared private channel.
+
+```yaml
+# Local chat announcement (channel 0)
+action: mmo_bridge.region_say
+data:
+  message: "Server maintenance in 5 minutes."
+
+# Region-wide on a private channel (e.g. for NPCs/HUDs listening on -9999)
+action: mmo_bridge.region_say
+data:
+  channel: -9999
+  message: "EVENT_START"
+
+# Target a specific node
+action: mmo_bridge.region_say
+data:
+  message: "Welcome to the party!"
+  node_id: "xev_getaway"
+```
+
 ### `mmo_bridge.reload`
 
 Reload sensor and notify platforms without restarting HA. Useful during development. Changes to `__init__.py` still require a full restart.
@@ -250,6 +281,60 @@ Reload sensor and notify platforms without restarting HA. Useful during developm
 | `mmo_bridge_avatar_afk_changed` | `{world, avatar, afk}` | AFK state toggles (HUD required) |
 | `mmo_bridge_avatar_busy_changed` | `{world, avatar, busy}` | Busy state toggles (HUD required) |
 | `mmo_bridge_region_restart` | `{world, world_data}` | Sim restarts |
+| `mmo_bridge_inworld_trigger` | `{world, node_id, owner, trigger, ...}` | In-world trigger object fired (see below) |
+
+---
+
+## Inworld trigger relay
+
+Any in-world scripted object can send a trigger event through the Bridge or Stats Node to Home Assistant. Use cases: a doorbell button, a vendor, an NPC greeting, a tip jar.
+
+### Setup
+
+1. On the Hub (or Node), run `/5 settrigchan` with no argument. It picks a random **negative** channel and enables the relay listener:
+   ```
+   Trigger relay enabled. Channel: -1847362910. Add this to your trigger objects.
+   ```
+2. Note the channel. Run `/5 status` any time to check it.
+3. Running `/5 settrigchan` again **rotates** to a new channel — remember to update your trigger objects.
+4. `/5 settrigchan -12345678` sets a specific channel if you prefer.
+
+The relay is **disabled by default** and survives script resets. `hardreset` clears it.
+
+### Trigger object script (minimal example)
+
+```lsl
+integer TRIG_CHAN = -1847362910;  // paste from /5 settrigchan or /5 status
+
+touch_start(integer n) {
+    llRegionSay(TRIG_CHAN, llList2Json(JSON_OBJECT, [
+        "trigger",  "doorbell",
+        "toucher",  llDetectedName(0)
+    ]));
+}
+```
+
+Any extra fields (`toucher`, `message`, `payment`, etc.) are passed through to HA untouched.
+
+### Who can own trigger objects?
+
+- **Hub relay** — the triggering object must be owned by any **registered avatar**
+- **Node relay** — the triggering object must be owned by the **Node owner**
+
+Unrecognised owners are silently dropped.
+
+### `mmo_bridge_inworld_trigger` event payload
+
+| Field | Always present | Description |
+|---|---|---|
+| `trigger` | Yes | Trigger name set by the script (e.g. `"doorbell"`) |
+| `world` | Yes | `"secondlife"` |
+| `node_id` | Yes | Slugified parcel name of the Hub/Node that relayed it |
+| `owner` | Yes | Name of the registered avatar who owns the trigger object |
+| `toucher` | Optional | Avatar name passed by the trigger script |
+| `message` | Optional | Custom message passed by the trigger script |
+| `payment` | Optional | L$ amount (for vendor use) |
+| `...` | Optional | Any other fields in the trigger JSON are forwarded as-is |
 
 ---
 
@@ -286,11 +371,52 @@ automation:
         target: "Xevian Wake"
 ```
 
-### Doorbell alert to everyone online
+### Real-world doorbell — someone touches your SL door
 
 ```yaml
 automation:
-  alias: "SL — Doorbell"
+  alias: "SL — Someone at the door"
+  trigger:
+    - platform: event
+      event_type: mmo_bridge_inworld_trigger
+      event_data:
+        trigger: doorbell
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        message: "{{ trigger.event.data.toucher }} is at your door in SL"
+        title: "SL Doorbell"
+```
+
+### Vendor sale — log a payment and send a thank-you IM
+
+```yaml
+automation:
+  alias: "SL — Vendor sale"
+  trigger:
+    - platform: event
+      event_type: mmo_bridge_inworld_trigger
+      event_data:
+        trigger: vendor_sale
+  action:
+    - service: mmo_bridge.send_message
+      data:
+        message: >
+          Thanks {{ trigger.event.data.toucher }}!
+          You paid L${{ trigger.event.data.payment }}.
+        target: "{{ trigger.event.data.toucher }}"
+    - service: notify.mobile_app_your_phone
+      data:
+        message: >
+          L${{ trigger.event.data.payment }} sale to
+          {{ trigger.event.data.toucher }}
+```
+
+### HA doorbell → SL alert to everyone online
+
+```yaml
+automation:
+  alias: "SL — Real doorbell to SL"
   trigger:
     - platform: state
       entity_id: binary_sensor.doorbell
@@ -302,7 +428,21 @@ automation:
   action:
     - service: mmo_bridge.send_message
       data:
-        message: "Someone's at the door!"
+        message: "Someone's at the real-world door!"
+```
+
+### Region announcement when an HA event fires
+
+```yaml
+automation:
+  alias: "SL — Server restart warning"
+  trigger:
+    - platform: time
+      at: "03:55:00"
+  action:
+    - service: mmo_bridge.region_say
+      data:
+        message: "Home server restarting in 5 minutes. SL bridge will reconnect shortly."
 ```
 
 ### Show now playing on the bridge hover text
@@ -387,6 +527,8 @@ entities:
 | Trusted bridge UUID | HUD ignores URL updates from any object except the paired bridge |
 | Per-avatar HMAC-SHA256 secret | Script commands — each avatar has a unique secret; commands include a timestamp to prevent replay |
 | HA label whitelist | Only scripts explicitly labelled `MMO Script` or `MMO - <Name>` are reachable from the HUD |
+| Trigger relay channel | Random negative channel generated by the owner — can't be triggered from in-world chat (scripts only); rotatable at any time |
+| Trigger owner check | Hub relay: object owner must be a registered avatar. Node relay: object owner must be the Node owner. Unknown owners are silently dropped. |
 
 ---
 

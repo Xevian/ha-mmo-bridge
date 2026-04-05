@@ -81,6 +81,7 @@ the number, then the command:
   • Busy status
   • Current region and parcel name
   • Position (for the device tracker only)
+  • HA script commands (when you use the menu)
 
 Updates are only sent when something changes —
 not on a fixed timer — so it's lightweight.
