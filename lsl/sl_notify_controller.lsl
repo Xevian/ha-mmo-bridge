@@ -300,15 +300,15 @@ default {
         llSetObjectName("MMO Hub");
 
         // ── Security checks — abort if not properly locked down ───────────────
-        // Check both the object AND this script for next-owner Modify permission.
-        // If either is set, anyone receiving a copy can add/read scripts and
-        // extract your HA credentials. Set both to No-Modify before deploying.
-        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+        // Check this script for next-owner Modify permission. If set, anyone
+        // receiving a copy can read the script source to extract LD_PASS. The
+        // object itself can remain Modify (recipients can change appearance).
+        if (llGetInventoryPermMask(llGetScriptName(), MASK_NEXT) & PERM_MODIFY) {
             llSetText("MMO Hub\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
-            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
-                + "still has Modify permission for the next owner. Anyone receiving a "
-                + "copy could add scripts to read your HA credentials. Set the OBJECT "
-                + "and ALL scripts to No-Modify for Next Owner, then Reset Script.");
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this script still has "
+                + "Modify permission for the next owner. Anyone receiving a copy can "
+                + "read the script source and extract your LD_PASS. Set ALL scripts to "
+                + "No-Modify for Next Owner, then Reset Script.");
             return;
         }
         // Refuse to run on the default passphrase — change LD_PASS to something

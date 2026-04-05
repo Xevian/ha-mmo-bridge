@@ -61,11 +61,11 @@ The same value must be set in all four scripts:
 
 The default `"mmo_bridge"` is public knowledge (open source) — using it means anyone who gets a copy of your prim and knows the source can read your protected linkset data.
 
-### 2 — Set No-Modify for the next owner
+### 2 — Set scripts to No-Modify for the next owner
 
-Right-click each script → **Properties** → uncheck **Modify** under *Next Owner*. Do the same for the **object** itself.
+Right-click each script → **Properties** → uncheck **Modify** under *Next Owner*.
 
-If either the object or a script still has Modify set for the next owner, someone who receives a copy of the prim could add their own script to read your HA credentials — even on scripts-disabled land, contents can still be swapped before rezzing elsewhere.
+The object itself can stay Modify — recipients are welcome to reshape or retexture it however they like. Only the scripts need to be locked, because that's what protects the `LD_PASS` value from being read by someone who receives a copy.
 
 > **During development** you obviously need Modify on for yourself. These checks only fire if the *next-owner* permission is set — your own Modify permission is unaffected.
 

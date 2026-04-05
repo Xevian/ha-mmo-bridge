@@ -99,10 +99,12 @@ Script commands are cryptographically signed
 so they can't be faked or replayed.
 
 The HUD scripts are set to No-Modify — this is
-intentional. It prevents anyone from tampering
-with the scripts to extract credentials. If the
-HUD refuses to start, ask the owner to check
-their security setup.
+intentional. It prevents anyone from reading the
+script source to extract the passphrase. You can
+still modify the HUD object itself (resize,
+retexture, make it a flower pot — go for it).
+If the HUD refuses to start, ask the owner to
+check their security setup.
 
 If you receive a HUD that shows a security
 warning in chat, let the owner know — they

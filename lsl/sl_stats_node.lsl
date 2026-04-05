@@ -205,11 +205,12 @@ default {
         llSetObjectName("MMO Node");
 
         // ── Security checks — abort if not properly locked down ───────────────
-        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
+        if (llGetInventoryPermMask(llGetScriptName(), MASK_NEXT) & PERM_MODIFY) {
             llSetText("MMO Node\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
-            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
-                + "still has Modify permission for the next owner. Set the OBJECT and "
-                + "ALL scripts to No-Modify for Next Owner, then Reset Script.");
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this script still has "
+                + "Modify permission for the next owner. Anyone receiving a copy can "
+                + "read the script source and extract your LD_PASS. Set ALL scripts to "
+                + "No-Modify for Next Owner, then Reset Script.");
             return;
         }
         if (LD_PASS == "mmo_bridge") {

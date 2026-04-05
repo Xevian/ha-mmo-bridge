@@ -31,14 +31,16 @@ to start until both are complete.
    who knows the source code could use it to
    read your protected linkset data.
 
-2. SET NO-MODIFY FOR THE NEXT OWNER
+2. SET SCRIPTS TO NO-MODIFY FOR NEXT OWNER
 
    Right-click each script → Properties →
    uncheck Modify under Next Owner.
-   Do the same for the object itself.
 
-   If Modify is left on, someone who gets a
-   copy could add a script to read your HA URL.
+   The object itself can stay Modify — people
+   can reshape or retexture it freely. Only the
+   scripts need locking, because that protects
+   your LD_PASS from being read by someone who
+   receives a copy.
 
    (Your own Modify permission is unaffected —
    only the next-owner permission matters here.)

@@ -108,10 +108,11 @@ sendCommand(string script_id) {
 default {
     state_entry() {
         // ── Security checks — abort if not properly locked down ───────────────
-        if ((llGetObjectPermMask(MASK_NEXT) | llGetInventoryPermMask(llGetScriptName(), MASK_NEXT)) & PERM_MODIFY) {
-            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this object or script "
-                + "still has Modify permission for the next owner. Set the OBJECT and "
-                + "ALL scripts to No-Modify for Next Owner before distributing.");
+        if (llGetInventoryPermMask(llGetScriptName(), MASK_NEXT) & PERM_MODIFY) {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this script still has "
+                + "Modify permission for the next owner. Anyone receiving the HUD can "
+                + "read the script source and extract your LD_PASS. Set ALL scripts to "
+                + "No-Modify for Next Owner before distributing.");
             return;
         }
         if (LD_PASS == "mmo_bridge") {
