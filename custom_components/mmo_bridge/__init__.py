@@ -423,6 +423,57 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
 
+    async def handle_region_say(call):
+        """Send a message via llRegionSay / llSay on the target node(s).
+
+        node_id omitted → send to ALL region_say-capable nodes in the world.
+        channel 0       → llSay (llRegionSay does not work on channel 0 in LSL).
+        channel != 0    → llRegionSay, reaching the whole region on that channel.
+        """
+        world   = call.data.get("world", "secondlife")
+        channel = int(call.data.get("channel", 0))
+        message = call.data.get("message", "")[:1023]
+        node_id = call.data.get("node_id")
+
+        if not message:
+            _LOGGER.warning("region_say: 'message' is required")
+            return
+
+        world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
+        if not world_nodes:
+            _LOGGER.warning("region_say: no nodes registered for world '%s'", world)
+            return
+
+        if node_id:
+            node = world_nodes.get(node_id)
+            if not node:
+                _LOGGER.warning("region_say: node '%s' not found in world '%s'", node_id, world)
+                return
+            targets = {node_id: node}
+        else:
+            targets = {nid: n for nid, n in world_nodes.items()
+                       if "region_say" in n.get("capabilities", [])}
+            if not targets:
+                targets = world_nodes  # fall back to all nodes if none are tagged yet
+
+        session = async_get_clientsession(hass)
+        for nid, node in targets.items():
+            url = node.get("url")
+            if not url:
+                continue
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                await session.post(
+                    url,
+                    json={"command": "region_say", "channel": channel, "message": message},
+                    timeout=timeout,
+                )
+                _LOGGER.debug("region_say sent to node '%s' in '%s' (ch %d)", nid, world, channel)
+            except Exception as e:
+                _LOGGER.error("region_say: failed to send to '%s'/'%s': %s", world, nid, e)
+
+    hass.services.async_register(DOMAIN, "region_say", handle_region_say)
+
     # Register mmo_bridge.reload service — reloads sensor + notify platforms
     # without restarting HA. Changes to __init__.py still require a full restart.
     await async_setup_reload_service(hass, DOMAIN, ["sensor", "notify"])

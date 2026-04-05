@@ -1,7 +1,7 @@
 
 // ── MMO Bridge — Stats Node ───────────────────────────────────────────────────
 //
-// Capabilities: world_data, display
+// Capabilities: world_data, display, region_say
 //
 // Drop this script into any in-world object to push region metrics (FPS, time
 // dilation, agent counts, etc.) to Home Assistant as a graphable sensor node.
@@ -106,7 +106,7 @@ string buildPayload() {
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", llList2Json(JSON_ARRAY, ["world_data", "display"]),
+        "capabilities", llList2Json(JSON_ARRAY, ["world_data", "display", "region_say"]),
         "world_data",   buildWorldData()
     ];
     if (region_restarted) {
@@ -139,7 +139,7 @@ registerWithHA() {
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", llList2Json(JSON_ARRAY, ["world_data", "display"])
+        "capabilities", llList2Json(JSON_ARRAY, ["world_data", "display", "region_say"])
     ]);
     regRequestKey = llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
     llOwnerSay("MMO Stats: registering with HA...");
@@ -306,6 +306,16 @@ default {
         if (cmd != JSON_INVALID && cmd != "") {
             if (cmd == "refresh") {
                 sendStatsNow();
+            } else if (cmd == "region_say") {
+                integer chan = (integer)llJsonGetValue(body, ["channel"]);
+                string  rmsg = llJsonGetValue(body, ["message"]);
+                if (rmsg != JSON_INVALID && rmsg != "") {
+                    // llRegionSay does not work on channel 0 — use llSay instead
+                    if (chan == 0)
+                        llSay(0, rmsg);
+                    else
+                        llRegionSay(chan, rmsg);
+                }
             } else if (cmd == "set_text") {
                 string ckey = llJsonGetValue(body, ["key"]);
                 string cval = llJsonGetValue(body, ["value"]);

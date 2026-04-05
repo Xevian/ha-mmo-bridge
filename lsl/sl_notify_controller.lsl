@@ -1,7 +1,7 @@
 
 // ── MMO Bridge — Hub (Notify Controller) ─────────────────────────────────────
 //
-// Capabilities: presence, message, display
+// Capabilities: presence, message, display, region_say
 //
 // Rez on your home parcel and set the object's group. Group members touch to
 // register — the Hub tracks online/offline presence and delivers IMs sent
@@ -141,7 +141,7 @@ registerWithHA() {
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message", "display"])
+        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message", "display", "region_say"])
     ]);
     regRequestKey = llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
     llOwnerSay("MMO Bridge: registering with HA...");
@@ -149,14 +149,14 @@ registerWithHA() {
 
 string buildOnlineJson(list names) {
     string arr    = llList2Json(JSON_ARRAY, names);
-    string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display"]);
+    string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display", "region_say"]);
     string athome = llList2Json(JSON_ARRAY, buildAtHome());
     list fields = [
         "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", caps,
+        "capabilities", caps,  // presence, message, display, region_say
         "world_data",   buildWorldData(),
         "online",       arr,
         "at_home",      athome
@@ -463,6 +463,16 @@ default {
         if (cmd != JSON_INVALID && cmd != "") {
             if (cmd == "refresh") {
                 sendPresenceNow();
+            } else if (cmd == "region_say") {
+                integer chan = (integer)llJsonGetValue(body, ["channel"]);
+                string  rmsg = llJsonGetValue(body, ["message"]);
+                if (rmsg != JSON_INVALID && rmsg != "") {
+                    // llRegionSay does not work on channel 0 — use llSay instead
+                    if (chan == 0)
+                        llSay(0, rmsg);
+                    else
+                        llRegionSay(chan, rmsg);
+                }
             } else if (cmd == "set_text") {
                 string ckey = llJsonGetValue(body, ["key"]);
                 string cval = llJsonGetValue(body, ["value"]);
