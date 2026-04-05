@@ -81,6 +81,7 @@ the number, then the command:
   • Busy status
   • Current region and parcel name
   • Position (for the device tracker only)
+  • HA script commands (when you use the menu)
 
 Updates are only sent when something changes —
 not on a fixed timer — so it's lightweight.
@@ -96,6 +97,19 @@ connection.
 
 Script commands are cryptographically signed
 so they can't be faked or replayed.
+
+The HUD scripts are set to No-Modify — this is
+intentional. It prevents anyone from reading the
+script source to extract the passphrase. You can
+still modify the HUD object itself (resize,
+retexture, make it a flower pot — go for it).
+If the HUD refuses to start, ask the owner to
+check their security setup.
+
+If you receive a HUD that shows a security
+warning in chat, let the owner know — they
+need to change LD_PASS and set No-Modify
+before distributing.
 
 ───────────────────────────────────────────────
   TROUBLESHOOTING

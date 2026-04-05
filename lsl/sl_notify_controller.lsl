@@ -1,6 +1,20 @@
 
+// ── MMO Bridge — Hub (Notify Controller) ─────────────────────────────────────
+//
+// Capabilities: presence, message, display, region_say
+//
+// Rez on your home parcel and set the object's group. Group members touch to
+// register — the Hub tracks online/offline presence and delivers IMs sent
+// from Home Assistant automations. It also pushes at-home detection (who is
+// physically on the parcel), live region/world data, and hover text lines
+// that HA can update remotely.
+//
+// Setup: /5 seturl <webhook URL including ?token=...>
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Protocol version — bump when making breaking payload changes ──────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys ───────────────────────────────────────────────────────
 string LD_HA_URL        = "mmo_ha_url";
@@ -8,6 +22,7 @@ string LD_REGISTERED    = "mmo_registered";
 string LD_POLL_INTERVAL = "mmo_poll_interval";
 string LD_CUSTOM_LINES  = "mmo_custom_lines";
 string LD_OWNER         = "mmo_owner";
+string LD_TRIG_CHANNEL  = "mmo_trig_channel";  // stored as string; absent = disabled
 string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -18,6 +33,8 @@ list    custom_lines;                      // [key, value, key, value, ...] push
 integer CMD_CHANNEL        = 5;            // Owner chat: /5 <command>
 integer listen_handle;
 integer hud_listen_handle;
+integer trig_channel       = 0;            // 0 = trigger relay disabled
+integer trig_listen_handle = 0;
 
 // Shared private channel for bridge↔HUD URL bootstrap.
 // Must match the constant in sl_avatar_hud.lsl.
@@ -127,7 +144,7 @@ registerWithHA() {
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message", "display"])
+        "capabilities", llList2Json(JSON_ARRAY, ["presence", "message", "display", "region_say"])
     ]);
     regRequestKey = llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], payload);
     llOwnerSay("MMO Bridge: registering with HA...");
@@ -135,14 +152,14 @@ registerWithHA() {
 
 string buildOnlineJson(list names) {
     string arr    = llList2Json(JSON_ARRAY, names);
-    string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display"]);
+    string caps   = llList2Json(JSON_ARRAY, ["presence", "message", "display", "region_say"]);
     string athome = llList2Json(JSON_ARRAY, buildAtHome());
     list fields = [
         "protocol",     PROTOCOL_VERSION,
         "world",        "secondlife",
         "node_id",      computeNodeId(),
         "adapter_url",  my_url,
-        "capabilities", caps,
+        "capabilities", caps,  // presence, message, display, region_say
         "world_data",   buildWorldData(),
         "online",       arr,
         "at_home",      athome
@@ -172,9 +189,13 @@ scheduleUrlRetry() {
 
 sendPresenceNow() {
     if (ha_url == "") return;
-    online_names       = [];
     request_id_to_name = [];
     pending_checks     = 0;
+
+    // Pre-seed with avatars physically present on the parcel. llGetAgentList
+    // is synchronous and ground-truth — a bad DATA_ONLINE response can't
+    // flip someone to unavailable if we can see them standing here.
+    online_names = buildAtHome();
 
     integer len = llGetListLength(registered);
     integer i;
@@ -187,7 +208,7 @@ sendPresenceNow() {
     }
 
     if (pending_checks == 0) {
-        last_online_count = 0;
+        last_online_count = llGetListLength(online_names);
         llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
             buildOnlineJson(online_names));
         updateHoverText();
@@ -225,24 +246,92 @@ showHelp() {
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
     llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  settrigchan    — enable/rotate trigger relay (random negative channel)");
+    llOwnerSay("  settrigchan <n>— set trigger relay to specific negative channel");
     llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
     llOwnerSay("  help           — show this message");
+}
+
+// ── Trigger relay ────────────────────────────────────────────────────────────
+
+integer genTrigChannel() {
+    // Negative channels can't be triggered from in-world chat — scripts only.
+    // Avoid -1 (DEBUG_CHANNEL) and small values.
+    return -100000 - (integer)llFrand(2000000000.0);
+}
+
+startTrigListener() {
+    if (trig_listen_handle) llListenRemove(trig_listen_handle);
+    trig_listen_handle = llListen(trig_channel, "", NULL_KEY, "");
+}
+
+handleTriggerRelay(key sender_id, string payload) {
+    // 1. Validate JSON — trigger field must be present and non-empty
+    string trigger_val = llJsonGetValue(payload, ["trigger"]);
+    if (trigger_val == JSON_INVALID || trigger_val == "") return;
+
+    // 2. Check object owner is a registered avatar
+    list obj_details = llGetObjectDetails(sender_id, [OBJECT_OWNER]);
+    if (!llGetListLength(obj_details)) return;
+    key    sender_owner = (key)llList2String(obj_details, 0);
+    string owner_name   = "";
+    integer len = llGetListLength(registered);
+    integer i;
+    for (i = 0; i < len; i += 2) {
+        if ((key)llList2String(registered, i) == sender_owner) {
+            owner_name = llList2String(registered, i + 1);
+            jump owner_ok;
+        }
+    }
+    return;  // owner not in registered list — silently drop
+    @owner_ok;
+
+    // 3. Inject metadata and relay to HA
+    string out = payload;
+    out = llJsonSetValue(out, ["type"],    "inworld_trigger");
+    out = llJsonSetValue(out, ["world"],   "secondlife");
+    out = llJsonSetValue(out, ["node_id"], computeNodeId());
+    out = llJsonSetValue(out, ["owner"],   owner_name);
+    llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"], out);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 default {
     state_entry() {
+        // Reset to base name immediately — gets updated with parcel name once ready.
+        // Ensures a clean name when boxing up for distribution.
+        llSetObjectName("MMO Hub");
+
+        // ── Security checks — abort if not properly locked down ───────────────
+        // Check this script for next-owner Modify permission. If set, anyone
+        // receiving a copy can read the script source to extract LD_PASS. The
+        // object itself can remain Modify (recipients can change appearance).
+        if (llGetInventoryPermMask(llGetScriptName(), MASK_NEXT) & PERM_MODIFY) {
+            llSetText("MMO Hub\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this script still has "
+                + "Modify permission for the next owner. Anyone receiving a copy can "
+                + "read the script source and extract your LD_PASS. Set ALL scripts to "
+                + "No-Modify for Next Owner, then Reset Script.");
+            return;
+        }
+        // Refuse to run on the default passphrase — change LD_PASS to something
+        // unique in all four scripts before use. The default is public knowledge.
+        if (LD_PASS == "mmo_bridge") {
+            llSetText("MMO Hub\n⚠ Security setup needed — check owner chat", <1.0, 0.5, 0.0>, 1.0);
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts (Hub, Node, HUD, HUD Commands), then Reset Script.");
+            return;
+        }
+
         // Belt-and-braces ownership check — CHANGED_OWNER only fires for
         // in-world transfers. Inventory copies arrive already owned by the
         // recipient so we must detect the mismatch here and wipe stale data.
         string stored_owner = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_REGISTERED);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataReset();  // wipes protected + unprotected entries alike
             llLinksetDataWrite(LD_OWNER, current_owner);
         }
 
@@ -253,6 +342,14 @@ default {
 
         // Load HA URL from linkset data
         ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        if (ha_url == "") {
+            // Migrate unprotected entry written by scripts before v0.2.1
+            ha_url = llLinksetDataRead(LD_HA_URL);
+            if (ha_url != "") {
+                llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
+                llLinksetDataDelete(LD_HA_URL);
+            }
+        }
         if (ha_url != "") {
             llOwnerSay("MMO Bridge: loaded HA URL from linkset data.");
         } else {
@@ -279,6 +376,16 @@ default {
         else
             custom_lines = [];
 
+        // Restore trigger relay channel (absent = disabled)
+        trig_channel       = 0;
+        trig_listen_handle = 0;
+        string stored_trig = llLinksetDataRead(LD_TRIG_CHANNEL);
+        if (stored_trig != "") {
+            trig_channel = (integer)stored_trig;
+            startTrigListener();
+            llOwnerSay("MMO Bridge: trigger relay active on channel " + (string)trig_channel + ".");
+        }
+
         // Start listening for owner commands
         if (listen_handle) llListenRemove(listen_handle);
         listen_handle = llListen(CMD_CHANNEL, "", llGetOwner(), "");
@@ -301,6 +408,12 @@ default {
     }
 
     listen(integer channel, string name, key id, string msg) {
+        // Trigger relay — from in-world scripted objects to HA
+        if (trig_channel != 0 && channel == trig_channel) {
+            handleTriggerRelay(id, msg);
+            return;
+        }
+
         // HUD requesting a URL update — respond only if avatar is registered
         if (channel == BRIDGE_HUD_CHANNEL) {
             string type   = llJsonGetValue(msg, ["type"]);
@@ -340,12 +453,17 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO Bridge status ──");
+            llOwnerSay("Version   : " + SCRIPT_VERSION + " (protocol v" + (string)PROTOCOL_VERSION + ")");
             llOwnerSay("HA URL    : " + ha_url);
             if (is_ready)
                 llOwnerSay("Script URL: " + my_url);
             else
                 llOwnerSay("Script URL: (not ready)");
             llOwnerSay("Poll every: " + (string)((integer)poll_interval) + "s");
+            if (trig_channel != 0)
+                llOwnerSay("Trig chan  : " + (string)trig_channel);
+            else
+                llOwnerSay("Trig chan  : disabled  (/5 settrigchan to enable)");
             integer reg_count = llGetListLength(registered) / 2;
             llOwnerSay("Registered: " + (string)reg_count + " avatar(s)");
             integer si;
@@ -396,15 +514,41 @@ default {
             updateHoverText();
             llOwnerSay("MMO Bridge: all registered avatars cleared.");
 
+        } else if (msg == "settrigchan") {
+            // No arg: generate/rotate random negative channel
+            integer old_chan = trig_channel;
+            trig_channel = genTrigChannel();
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (old_chan != 0)
+                llOwnerSay("Trigger channel rotated from " + (string)old_chan
+                    + " to " + (string)trig_channel + ". Update your trigger objects.");
+            else
+                llOwnerSay("Trigger relay enabled. Channel: " + (string)trig_channel
+                    + ". Add this to your trigger objects.");
+
+        } else if (llGetSubString(msg, 0, 11) == "settrigchan ") {
+            // Arg given: set specific channel (must be negative)
+            integer new_chan = (integer)llStringTrim(llGetSubString(msg, 12, -1), STRING_TRIM);
+            if (new_chan >= 0) {
+                llOwnerSay("Trigger channel must be negative (e.g. /5 settrigchan -12345678).");
+                return;
+            }
+            integer was_disabled = (trig_channel == 0);
+            trig_channel = new_chan;
+            llLinksetDataWrite(LD_TRIG_CHANNEL, (string)trig_channel);
+            startTrigListener();
+            if (was_disabled)
+                llOwnerSay("Trigger relay enabled on channel " + (string)trig_channel + ".");
+            else
+                llOwnerSay("Trigger channel updated to " + (string)trig_channel + ".");
+
         } else if (msg == "help") {
             showHelp();
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO Bridge: clearing all stored data and resetting...");
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_REGISTERED);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
+            llLinksetDataReset();
             llResetScript();
 
         } else {
@@ -442,6 +586,16 @@ default {
         if (cmd != JSON_INVALID && cmd != "") {
             if (cmd == "refresh") {
                 sendPresenceNow();
+            } else if (cmd == "region_say") {
+                integer chan = (integer)llJsonGetValue(body, ["channel"]);
+                string  rmsg = llJsonGetValue(body, ["message"]);
+                if (rmsg != JSON_INVALID && rmsg != "") {
+                    // llRegionSay does not work on channel 0 — use llSay instead
+                    if (chan == 0)
+                        llSay(0, rmsg);
+                    else
+                        llRegionSay(chan, rmsg);
+                }
             } else if (cmd == "set_text") {
                 string ckey = llJsonGetValue(body, ["key"]);
                 string cval = llJsonGetValue(body, ["value"]);
@@ -570,7 +724,9 @@ default {
 
         string nm = llList2String(request_id_to_name, idx + 1);
         request_id_to_name = llDeleteSubList(request_id_to_name, idx, idx + 1);
-        if (data == "1") online_names += [nm];
+        // Only add if not already present (at-home avatars are pre-seeded)
+        if (data == "1" && llListFindList(online_names, [nm]) == -1)
+            online_names += [nm];
         --pending_checks;
         if (pending_checks <= 0) {
             last_online_count = llGetListLength(online_names);
@@ -582,11 +738,7 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDeleteProtected(LD_HA_URL, LD_PASS);
-            llLinksetDataDelete(LD_REGISTERED);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDelete(LD_CUSTOM_LINES);
-            llLinksetDataDelete(LD_OWNER);
+            llLinksetDataReset();
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {

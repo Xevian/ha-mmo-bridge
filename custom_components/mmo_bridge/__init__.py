@@ -53,6 +53,7 @@ async def async_setup(hass, config):
     # avatar_hmac_secrets[avatar_slug] = hex_secret  (persisted)
     hass.data[DOMAIN]["nodes"]               = {}
     hass.data[DOMAIN]["online_by_world"]     = {}
+    hass.data[DOMAIN]["node_online"]         = {}  # node_online[world][node_id] = set of names
     hass.data[DOMAIN]["avatar_home"]         = {}
     hass.data[DOMAIN]["known_avatars"]       = {}
     hass.data[DOMAIN]["avatar_state"]        = {}
@@ -166,7 +167,13 @@ async def async_setup(hass, config):
             try:
                 await hass.services.async_call(
                     "script", "turn_on",
-                    {"entity_id": f"script.{script_id}"},
+                    {
+                        "entity_id": f"script.{script_id}",
+                        "variables": {
+                            "mmo_avatar": avatar,
+                            "mmo_world":  world,
+                        },
+                    },
                     blocking=False,
                 )
                 _LOGGER.info(
@@ -177,6 +184,23 @@ async def async_setup(hass, config):
                 return web.Response(status=500)
 
             return web.json_response({"protocol": PROTOCOL_VERSION, "status": "ok"})
+
+        # ── In-world trigger relay ────────────────────────────────────────────
+        if payload_type == "inworld_trigger":
+            trigger_name = data.get("trigger", "")
+            if not trigger_name:
+                return web.Response(status=400, text="missing trigger field")
+            raw_nid = data.get("node_id", "")
+            # Pass all fields through; ensure world and node_id are present
+            event_data          = dict(data)
+            event_data["world"]   = world
+            event_data["node_id"] = slugify(raw_nid) if raw_nid else "default"
+            hass.bus.async_fire(f"{DOMAIN}_inworld_trigger", event_data)
+            _LOGGER.info(
+                "inworld_trigger: '%s' from '%s' in '%s'",
+                trigger_name, data.get("owner", "unknown"), world,
+            )
+            return web.Response(text="OK")
 
         # ── Standard node/presence/state processing ───────────────────────────
         raw_node_id  = data.get("node_id", "")
@@ -239,9 +263,19 @@ async def async_setup(hass, config):
             if world not in hass.data[DOMAIN]["online_by_world"]:
                 hass.data[DOMAIN]["online_by_world"][world] = []
                 hass.data[DOMAIN]["avatar_home"][world]     = {}
+            if world not in hass.data[DOMAIN]["node_online"]:
+                hass.data[DOMAIN]["node_online"][world] = {}
+
+            # Store this node's view of who is online, then merge across all
+            # nodes for the world. This prevents one Hub from wiping presence
+            # data reported by a different Hub (e.g. a housemate's Hub).
+            hass.data[DOMAIN]["node_online"][world][node_id] = set(data["online"])
+            merged_online = set()
+            for node_set in hass.data[DOMAIN]["node_online"][world].values():
+                merged_online.update(node_set)
 
             old_online = set(hass.data[DOMAIN]["online_by_world"][world])
-            new_online = set(data["online"])
+            new_online = merged_online
 
             for avatar in new_online - old_online:
                 _LOGGER.debug("%s came online in %s", avatar, world)
@@ -250,12 +284,14 @@ async def async_setup(hass, config):
                 _LOGGER.debug("%s went offline in %s", avatar, world)
                 hass.bus.async_fire(f"{DOMAIN}_avatar_offline", {"world": world, "avatar": avatar})
 
-            hass.data[DOMAIN]["online_by_world"][world] = data["online"]
+            hass.data[DOMAIN]["online_by_world"][world] = list(new_online)
 
-            # Update at-home status for each online avatar
+            # Update at-home status only for avatars this specific node tracks.
+            # Each Hub only knows about the avatars registered with IT, so we
+            # must not let one Hub overwrite another Hub's at-home data.
             if "at_home" in data:
                 at_home_set = set(data["at_home"])
-                for avatar in new_online:
+                for avatar in data["online"]:
                     hass.data[DOMAIN]["avatar_home"][world][avatar] = avatar in at_home_set
 
             # Region restart event
@@ -416,6 +452,57 @@ async def async_setup(hass, config):
                 )
 
     hass.services.async_register(DOMAIN, "set_object_text", handle_set_object_text)
+
+    async def handle_region_say(call):
+        """Send a message via llRegionSay / llSay on the target node(s).
+
+        node_id omitted → send to ALL region_say-capable nodes in the world.
+        channel 0       → llSay (llRegionSay does not work on channel 0 in LSL).
+        channel != 0    → llRegionSay, reaching the whole region on that channel.
+        """
+        world   = call.data.get("world", "secondlife")
+        channel = int(call.data.get("channel", 0))
+        message = call.data.get("message", "")[:1023]
+        node_id = call.data.get("node_id")
+
+        if not message:
+            _LOGGER.warning("region_say: 'message' is required")
+            return
+
+        world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
+        if not world_nodes:
+            _LOGGER.warning("region_say: no nodes registered for world '%s'", world)
+            return
+
+        if node_id:
+            node = world_nodes.get(node_id)
+            if not node:
+                _LOGGER.warning("region_say: node '%s' not found in world '%s'", node_id, world)
+                return
+            targets = {node_id: node}
+        else:
+            targets = {nid: n for nid, n in world_nodes.items()
+                       if "region_say" in n.get("capabilities", [])}
+            if not targets:
+                targets = world_nodes  # fall back to all nodes if none are tagged yet
+
+        session = async_get_clientsession(hass)
+        for nid, node in targets.items():
+            url = node.get("url")
+            if not url:
+                continue
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                await session.post(
+                    url,
+                    json={"command": "region_say", "channel": channel, "message": message},
+                    timeout=timeout,
+                )
+                _LOGGER.debug("region_say sent to node '%s' in '%s' (ch %d)", nid, world, channel)
+            except Exception as e:
+                _LOGGER.error("region_say: failed to send to '%s'/'%s': %s", world, nid, e)
+
+    hass.services.async_register(DOMAIN, "region_say", handle_region_say)
 
     # Register mmo_bridge.reload service — reloads sensor + notify platforms
     # without restarting HA. Changes to __init__.py still require a full restart.

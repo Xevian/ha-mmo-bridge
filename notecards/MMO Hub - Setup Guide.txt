@@ -8,6 +8,44 @@ you're online, send you messages in-world, and
 run automations based on your status.
 
 ───────────────────────────────────────────────
+  OWNER: SECURITY SETUP (do this first!)
+───────────────────────────────────────────────
+
+Before the scripts will run, you must do two
+things — the scripts print a warning and refuse
+to start until both are complete.
+
+1. CHANGE LD_PASS IN ALL FOUR SCRIPTS
+
+   Open each script and change the line:
+     string LD_PASS = "mmo_bridge";
+   to a unique passphrase of your choosing.
+
+   All four scripts must use the SAME value:
+     • sl_notify_controller.lsl  (Hub)
+     • sl_stats_node.lsl         (Node)
+     • sl_avatar_hud.lsl         (HUD)
+     • sl_hud_commands.lsl       (HUD Commands)
+
+   The default "mmo_bridge" is public — anyone
+   who knows the source code could use it to
+   read your protected linkset data.
+
+2. SET SCRIPTS TO NO-MODIFY FOR NEXT OWNER
+
+   Right-click each script → Properties →
+   uncheck Modify under Next Owner.
+
+   The object itself can stay Modify — people
+   can reshape or retexture it freely. Only the
+   scripts need locking, because that protects
+   your LD_PASS from being read by someone who
+   receives a copy.
+
+   (Your own Modify permission is unaffected —
+   only the next-owner permission matters here.)
+
+───────────────────────────────────────────────
   STEP 1 — Rez the MMO Hub
 ───────────────────────────────────────────────
 
@@ -69,9 +107,70 @@ the MMO Hub and look like:
   /5 remove <name>   Remove an avatar by name
   /5 clearusers      Remove all avatars
   /5 push            Force a presence update
+  /5 settrigchan     Enable/rotate trigger relay
+                     (picks a random channel)
+  /5 settrigchan <n> Set a specific negative chan
   /5 hardreset       Clear all stored data
                      (use when moving to new HA)
   /5 help            Show this list in chat
+
+───────────────────────────────────────────────
+  TRIGGER RELAY — IN-WORLD → HOME ASSISTANT
+───────────────────────────────────────────────
+
+You can have in-world objects (a doorbell, a
+vendor, an NPC) fire events in Home Assistant
+through the MMO Hub.
+
+SETUP:
+
+1. In local chat, type:   /5 settrigchan
+   The Hub picks a random private channel and
+   tells you the number, e.g. -1847362910
+
+2. Copy that number into your trigger object's
+   script (see example below)
+
+3. Done! HA automations can now react to touches
+   or payments on your in-world objects.
+
+Run /5 settrigchan again at any time to rotate
+to a new channel (update your trigger objects
+after rotating). Type /5 status to see the
+current channel.
+
+WHO CAN OWN A TRIGGER OBJECT?
+Any avatar registered with this MMO Hub.
+
+MINIMAL TRIGGER SCRIPT EXAMPLE:
+
+  integer TRIG_CHAN = -1847362910;
+
+  touch_start(integer n) {
+      llRegionSay(TRIG_CHAN,
+          llList2Json(JSON_OBJECT, [
+              "trigger", "doorbell",
+              "toucher", llDetectedName(0)
+          ]));
+  }
+
+The "trigger" field is required. Add "toucher",
+"message", "payment" (L$ amount) or any other
+fields you need — they all arrive in HA.
+
+EXAMPLE HA AUTOMATION:
+
+  trigger:
+    platform: event
+    event_type: mmo_bridge_inworld_trigger
+    event_data:
+      trigger: doorbell
+  action:
+    service: notify.mobile_app_phone
+    data:
+      message: >
+        {{ trigger.event.data.toucher }}
+        is at your SL door!
 
 ───────────────────────────────────────────────
   MMO NODE — PARCEL STATS
@@ -88,15 +187,19 @@ Assistant as graphable sensors:
 
 Rez the MMO Node somewhere on the parcel that
 stays rezzed permanently (a skybox or ground
-platform works well). Set it up the same way
-as the MMO Hub:
+platform works well). It uses channel /4 so it
+doesn't clash with the Hub's /5 commands:
 
-  /5 seturl <your webhook URL>
+  /4 seturl <your webhook URL>
 
 It registers with HA automatically and starts
 pushing stats on its own poll cycle. The MMO
 Node and MMO Hub are independent — you can have
 one without the other.
+
+The MMO Node also supports trigger relay (see
+above). Node trigger objects must be owned by
+the Node owner. Same /4 settrigchan command.
 
 ───────────────────────────────────────────────
   NEED TO UNREGISTER?

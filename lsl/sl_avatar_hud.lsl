@@ -5,9 +5,9 @@
 // Home Assistant as attributes on the device tracker entity.
 //
 // A companion script (sl_hud_commands.lsl) in the same linkset handles the
-// touch menu and HMAC-signed script commands. Keeping them separate means
-// llHMAC signing only blocks the command script — this script stays fully
-// responsive for state polling and bridge communication.
+// touch menu and HMAC-signed script commands independently — llHMAC signing
+// only blocks that script, leaving this one fully responsive for state
+// polling and bridge communication.
 //
 // URL bootstrap (no manual typing needed):
 //   1. Touch the bridge object — it sends the HA URL to this HUD automatically.
@@ -21,6 +21,7 @@
 
 // ── Protocol version — bump when making breaking payload changes ──────────────
 integer PROTOCOL_VERSION = 1;
+string  SCRIPT_VERSION   = "0.2.1";  // in-world version — matches manifest.json
 
 // ── Linkset data keys ─────────────────────────────────────────────────────────
 string LD_HA_URL        = "mmohud_ha_url";
@@ -32,9 +33,6 @@ string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset dat
 
 // ── Shared channel — MUST match sl_notify_controller.lsl ─────────────────────
 integer BRIDGE_HUD_CHANNEL = -1296912194;
-
-// ── Linked-message protocol — MUST match sl_hud_commands.lsl ─────────────────
-integer MSG_OPEN_MENU = 1001;  // → command script: open the script menu
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 string  ha_url;
@@ -174,15 +172,33 @@ showHelp() {
 
 default {
     state_entry() {
+        // Reset to base name immediately — ensures a clean name when boxing
+        // up for distribution rather than carrying a previous owner's parcel name.
+        llSetObjectName("MMO HUD");
+
+        // ── Security checks — abort if not properly locked down ───────────────
+        // HUD is distributed to other players — scripts must be No-Modify before
+        // handing out. The object can remain Modify (wearers can customise it).
+        if (llGetInventoryPermMask(llGetScriptName(), MASK_NEXT) & PERM_MODIFY) {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): this script still has "
+                + "Modify permission for the next owner. Anyone receiving the HUD can "
+                + "read the script source and extract your LD_PASS. Set ALL scripts to "
+                + "No-Modify for Next Owner before distributing.");
+            return;
+        }
+        if (LD_PASS == "mmo_bridge") {
+            llOwnerSay("⚠ SECURITY (" + llGetScriptName() + "): LD_PASS is still the "
+                + "default 'mmo_bridge'. Change it to a unique passphrase in ALL four "
+                + "scripts, then Reset Script.");
+            return;
+        }
+
         // Belt-and-braces ownership check — catches inventory copies where
         // CHANGED_OWNER never fires
         string stored_owner  = llLinksetDataRead(LD_OWNER);
         string current_owner = (string)llGetOwner();
         if (stored_owner != current_owner) {
-            llLinksetDataDeleteProtected(LD_HA_URL,        LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET,   LD_PASS);
+            llLinksetDataReset();  // wipes protected + unprotected entries alike
             llLinksetDataWrite(LD_OWNER, current_owner);
         }
 
@@ -199,7 +215,15 @@ default {
         regRequestKey        = NULL_KEY;
 
         // Restore persisted settings
-        ha_url             = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        ha_url = llLinksetDataReadProtected(LD_HA_URL, LD_PASS);
+        if (ha_url == "") {
+            // Migrate unprotected entry written by scripts before v0.2.1
+            ha_url = llLinksetDataRead(LD_HA_URL);
+            if (ha_url != "") {
+                llLinksetDataWriteProtected(LD_HA_URL, ha_url, LD_PASS);
+                llLinksetDataDelete(LD_HA_URL);
+            }
+        }
         trusted_bridge_key = llLinksetDataRead(LD_BRIDGE_KEY);
 
         if (ha_url != "")
@@ -219,15 +243,6 @@ default {
         hud_listen_handle = llListen(BRIDGE_HUD_CHANNEL, "", NULL_KEY, "");
 
         doRequestUrl();
-    }
-
-    touch_start(integer total) {
-        if (!is_ready || ha_url == "") {
-            llOwnerSay("MMO HUD: not connected to HA yet.");
-            return;
-        }
-        // Delegate menu handling entirely to the command script
-        llMessageLinked(LINK_SET, MSG_OPEN_MENU, "", NULL_KEY);
     }
 
     listen(integer channel, string name, key id, string msg) {
@@ -294,6 +309,7 @@ default {
 
         } else if (msg == "status") {
             llOwnerSay("── MMO HUD status ──");
+            llOwnerSay("Version     : " + SCRIPT_VERSION + " (protocol v" + (string)PROTOCOL_VERSION + ")");
             string url_display    = ha_url;
             if (url_display    == "") url_display    = "(not set)";
             string bridge_display = trusted_bridge_key;
@@ -318,10 +334,7 @@ default {
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO HUD: clearing all stored data and resetting...");
-            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
+            llLinksetDataReset();
             llResetScript();
 
         } else {
@@ -398,11 +411,7 @@ default {
 
     changed(integer c) {
         if (c & CHANGED_OWNER) {
-            llLinksetDataDeleteProtected(LD_HA_URL,      LD_PASS);
-            llLinksetDataDelete(LD_BRIDGE_KEY);
-            llLinksetDataDelete(LD_POLL_INTERVAL);
-            llLinksetDataDeleteProtected(LD_HMAC_SECRET, LD_PASS);
-            llLinksetDataDelete(LD_OWNER);
+            llLinksetDataReset();
             llResetScript();
         }
         if (c & CHANGED_INVENTORY) {

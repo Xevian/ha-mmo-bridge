@@ -75,11 +75,36 @@ class SLNotificationService(BaseNotificationService):
                 await _send(session, url, name, message, world)
 
 
+def _ascii_safe(text: str) -> str:
+    """Replace non-ASCII characters that LSL can't handle cleanly.
+
+    LSL's HTTP-in body handling is byte-oriented — multi-byte UTF-8 sequences
+    (e.g. ° → 0xC2 0xB0) arrive as two separate characters, producing mojibake.
+    Common substitutions are applied first; anything remaining is dropped.
+    """
+    replacements = {
+        "°": " deg",
+        "–": "-",
+        "—": "-",
+        "\u2018": "'", "\u2019": "'",   # curly single quotes
+        "\u201c": '"', "\u201d": '"',   # curly double quotes
+        "…": "...",
+        "€": "EUR",
+        "£": "GBP",
+        "©": "(c)",
+        "®": "(R)",
+        "™": "(TM)",
+    }
+    for char, sub in replacements.items():
+        text = text.replace(char, sub)
+    return text.encode("ascii", "ignore").decode("ascii")
+
+
 async def _send(session, url, avatar, message, world):
     try:
         timeout  = aiohttp.ClientTimeout(total=5)
         response = await session.post(
-            url, json={"to": avatar, "message": message}, timeout=timeout
+            url, json={"to": avatar, "message": _ascii_safe(message)}, timeout=timeout
         )
         if response.status == 404:
             _LOGGER.warning(
