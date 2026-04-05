@@ -189,9 +189,13 @@ scheduleUrlRetry() {
 
 sendPresenceNow() {
     if (ha_url == "") return;
-    online_names       = [];
     request_id_to_name = [];
     pending_checks     = 0;
+
+    // Pre-seed with avatars physically present on the parcel. llGetAgentList
+    // is synchronous and ground-truth — a bad DATA_ONLINE response can't
+    // flip someone to unavailable if we can see them standing here.
+    online_names = buildAtHome();
 
     integer len = llGetListLength(registered);
     integer i;
@@ -204,7 +208,7 @@ sendPresenceNow() {
     }
 
     if (pending_checks == 0) {
-        last_online_count = 0;
+        last_online_count = llGetListLength(online_names);
         llHTTPRequest(ha_url, [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
             buildOnlineJson(online_names));
         updateHoverText();
@@ -720,7 +724,9 @@ default {
 
         string nm = llList2String(request_id_to_name, idx + 1);
         request_id_to_name = llDeleteSubList(request_id_to_name, idx, idx + 1);
-        if (data == "1") online_names += [nm];
+        // Only add if not already present (at-home avatars are pre-seeded)
+        if (data == "1" && llListFindList(online_names, [nm]) == -1)
+            online_names += [nm];
         --pending_checks;
         if (pending_checks <= 0) {
             last_online_count = llGetListLength(online_names);
