@@ -460,9 +460,13 @@ async def async_setup(hass, config):
         channel 0       → llSay (llRegionSay does not work on channel 0 in LSL).
         channel != 0    → llRegionSay, reaching the whole region on that channel.
         """
+        import json as _json
         world   = call.data.get("world", "secondlife")
         channel = int(call.data.get("channel", 0))
-        message = call.data.get("message", "")[:1023]
+        raw_msg = call.data.get("message", "")
+        if isinstance(raw_msg, dict):
+            raw_msg = _json.dumps(raw_msg)
+        message = str(raw_msg)[:1023]
         node_id = call.data.get("node_id")
 
         if not message:
