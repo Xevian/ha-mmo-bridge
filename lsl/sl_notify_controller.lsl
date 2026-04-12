@@ -627,13 +627,17 @@ default {
         string msg    = llJsonGetValue(body, ["message"]);
 
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
-            // Broadcast to all registered avatars
+            // Broadcast to all registered avatars that are currently online.
+            // Skipping offline avatars prevents unwanted IM-to-email notifications.
             if (toName == "all") {
                 integer len = llGetListLength(registered);
                 integer i;
                 for (i = 0; i < len; i += 2) {
-                    key av = (key)llList2String(registered, i);
-                    llInstantMessage(av, formatMessage(msg));
+                    key    av = (key)llList2String(registered, i);
+                    string nm = llList2String(registered, i + 1);
+                    if (llListFindList(online_names, [nm]) != -1) {
+                        llInstantMessage(av, formatMessage(msg));
+                    }
                 }
                 llHTTPResponse(id, 200, "OK");
                 return;
