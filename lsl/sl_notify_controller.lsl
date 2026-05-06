@@ -23,12 +23,14 @@ string LD_POLL_INTERVAL = "mmo_poll_interval";
 string LD_CUSTOM_LINES  = "mmo_custom_lines";
 string LD_OWNER         = "mmo_owner";
 string LD_TRIG_CHANNEL  = "mmo_trig_channel";  // stored as string; absent = disabled
+string LD_NO_BROADCAST  = "mmo_no_broadcast";  // JSON array of names excluded from IMs
 string LD_PASS          = "mmo_bridge";  // passphrase for protected linkset data
 
 // ── Configuration ────────────────────────────────────────────────────────────
 string  ha_url; // Set via: /5 seturl <url>
 string  my_url;
 list    registered;                        // [key, name, key, name, ...]
+list    broadcast_excluded;                // names that receive presence tracking but no IMs
 list    custom_lines;                      // [key, value, key, value, ...] pushed from HA
 integer CMD_CHANNEL        = 5;            // Owner chat: /5 <command>
 integer listen_handle;
@@ -246,6 +248,8 @@ showHelp() {
     llOwnerSay("  remove <name>  — remove a specific avatar by name");
     llOwnerSay("  push           — force an immediate presence push to HA");
     llOwnerSay("  clearusers     — remove all registered avatars");
+    llOwnerSay("  nobroadcast <n>— exclude avatar from broadcast IMs (presence still tracked)");
+    llOwnerSay("  broadcast <n>  — re-enable broadcast IMs for an excluded avatar");
     llOwnerSay("  settrigchan    — enable/rotate trigger relay (random negative channel)");
     llOwnerSay("  settrigchan <n>— set trigger relay to specific negative channel");
     llOwnerSay("  hardreset      — clear ALL stored data and reset (use if moving to new HA)");
@@ -369,6 +373,13 @@ default {
             registered = [];
         }
 
+        // Restore broadcast exclusion list from linkset data
+        string stored_excl = llLinksetDataRead(LD_NO_BROADCAST);
+        if (stored_excl != "")
+            broadcast_excluded = llJson2List(stored_excl);
+        else
+            broadcast_excluded = [];
+
         // Restore custom hover text lines from linkset data
         string stored_lines = llLinksetDataRead(LD_CUSTOM_LINES);
         if (stored_lines != "")
@@ -479,8 +490,11 @@ default {
             }
             integer i;
             for (i = 0; i < len; i += 2) {
-                llOwnerSay("  " + llList2String(registered, i + 1)
-                    + "  (" + llList2String(registered, i) + ")");
+                string nm   = llList2String(registered, i + 1);
+                string flag = "";
+                if (llListFindList(broadcast_excluded, [nm]) != -1)
+                    flag = "  [no broadcast]";
+                llOwnerSay("  " + nm + "  (" + llList2String(registered, i) + ")" + flag);
             }
 
         } else if (llGetSubString(msg, 0, 6) == "remove ") {
@@ -545,6 +559,37 @@ default {
 
         } else if (msg == "help") {
             showHelp();
+
+        } else if (llGetSubString(msg, 0, 11) == "nobroadcast ") {
+            string target_name = llStringTrim(llGetSubString(msg, 12, -1), STRING_TRIM);
+            // Names sit at odd indices in the [key, name, ...] registered list
+            integer found = FALSE;
+            integer li;
+            for (li = 1; li < llGetListLength(registered); li += 2) {
+                if (llList2String(registered, li) == target_name) found = TRUE;
+            }
+            if (!found) {
+                llOwnerSay("No avatar named '" + target_name + "' is registered.");
+                return;
+            }
+            if (llListFindList(broadcast_excluded, [target_name]) == -1) {
+                broadcast_excluded += [target_name];
+                llLinksetDataWrite(LD_NO_BROADCAST, llList2Json(JSON_ARRAY, broadcast_excluded));
+                llOwnerSay(target_name + " will no longer receive broadcast IMs (presence still tracked).");
+            } else {
+                llOwnerSay(target_name + " is already excluded from broadcasts.");
+            }
+
+        } else if (llGetSubString(msg, 0, 8) == "broadcast ") {
+            string target_name = llStringTrim(llGetSubString(msg, 9, -1), STRING_TRIM);
+            integer idx = llListFindList(broadcast_excluded, [target_name]);
+            if (idx != -1) {
+                broadcast_excluded = llDeleteSubList(broadcast_excluded, idx, idx);
+                llLinksetDataWrite(LD_NO_BROADCAST, llList2Json(JSON_ARRAY, broadcast_excluded));
+                llOwnerSay(target_name + " will now receive broadcast IMs.");
+            } else {
+                llOwnerSay(target_name + " is not currently excluded from broadcasts.");
+            }
 
         } else if (msg == "hardreset") {
             llOwnerSay("MMO Bridge: clearing all stored data and resetting...");
@@ -627,15 +672,17 @@ default {
         string msg    = llJsonGetValue(body, ["message"]);
 
         if (toName != JSON_INVALID && toName != "" && msg != JSON_INVALID && msg != "") {
-            // Broadcast to all registered avatars that are currently online.
+            // Broadcast to online registered avatars not in the exclusion list.
             // Skipping offline avatars prevents unwanted IM-to-email notifications.
+            // Skipping excluded avatars lets presence-only friends opt out of IMs.
             if (toName == "all") {
                 integer len = llGetListLength(registered);
                 integer i;
                 for (i = 0; i < len; i += 2) {
                     key    av = (key)llList2String(registered, i);
                     string nm = llList2String(registered, i + 1);
-                    if (llListFindList(online_names, [nm]) != -1) {
+                    if (llListFindList(online_names, [nm]) != -1
+                            && llListFindList(broadcast_excluded, [nm]) == -1) {
                         llInstantMessage(av, formatMessage(msg));
                     }
                 }
