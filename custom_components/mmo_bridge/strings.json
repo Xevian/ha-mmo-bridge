@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MMO Bridge",
+        "description": "MMO Bridge creates a secure webhook for your Second Life LSL scripts to connect to Home Assistant.\n\nNo configuration is needed — click **Submit** to set up.\n\nOnce set up, click **Configure** on the integration card to retrieve your webhook URL."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "MMO Bridge is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Webhook URL",
+        "description": "Copy this URL into your LSL Hub and Node scripts (the `seturl` command):\n\n`{webhook_url}`\n\nKeep this URL private — anyone with it can send presence and trigger events to your Home Assistant."
+      }
+    }
+  }
+}
