@@ -519,9 +519,12 @@ async def async_setup_entry(hass, entry):
 
     hass.services.async_register(DOMAIN, "region_say", handle_region_say)
 
-    # Load sensor platform
+    # Load sensor and notify platforms
     hass.async_create_task(
         discovery.async_load_platform(hass, "sensor", DOMAIN, {}, {})
+    )
+    hass.async_create_task(
+        discovery.async_load_platform(hass, "notify", DOMAIN, {}, {})
     )
 
     path = f"/api/webhook/mmo_bridge?token={token}"
