@@ -44,35 +44,37 @@ class SLNotificationService(BaseNotificationService):
             if ":" in raw:
                 world, name = raw.split(":", 1)
 
-            # Find the first node that explicitly advertises the 'message' capability
-            url = None
-            for node in nodes.get(world, {}).values():
-                if "message" in node.get("capabilities", []):
-                    url = node.get("url")
-                    if url:
-                        break
+            # Collect all nodes that advertise the 'message' capability
+            msg_nodes = {
+                nid: node for nid, node in nodes.get(world, {}).items()
+                if "message" in node.get("capabilities", []) and node.get("url")
+            }
 
-            if not url:
+            if not msg_nodes:
                 _LOGGER.warning("No message-capable node for world '%s'", world)
                 continue
 
             online_list = online.get(world, [])
 
             if name == BROADCAST_KEYWORD:
-                # Broadcast: send to="all" — the LSL script iterates its own
-                # registered list and delivers to every avatar in-world.
-                # This avoids relying on HA's online_by_world being up to date.
-                await _send(session, url, "all", message, world)
+                # Broadcast: send to="all" to EVERY message-capable node so that
+                # avatars registered with different Hubs all receive the message.
+                # Each LSL Hub delivers only to its own registered list, so there
+                # are no duplicates unless an avatar is registered with two Hubs.
+                for nid, node in msg_nodes.items():
+                    await _send(session, node["url"], "all", message, world)
             else:
-                # Targeted: send unconditionally — the LSL script returns 404 if
-                # the avatar is not registered.
+                # Targeted: try every node — the LSL script returns 404 if the
+                # avatar is not in that node's registered list, so the message
+                # reaches whichever Hub the avatar is actually registered with.
                 if name not in online_list:
                     _LOGGER.debug(
                         "Sending to '%s' in '%s' (not in last presence poll — "
                         "LSL will reject if not registered)",
                         name, world,
                     )
-                await _send(session, url, name, message, world)
+                for nid, node in msg_nodes.items():
+                    await _send(session, node["url"], name, message, world)
 
 
 def _ascii_safe(text: str) -> str:
@@ -107,8 +109,8 @@ async def _send(session, url, avatar, message, world):
             url, json={"to": avatar, "message": _ascii_safe(message)}, timeout=timeout
         )
         if response.status == 404:
-            _LOGGER.warning(
-                "Message to '%s' in '%s' rejected by LSL script (avatar not registered)",
+            _LOGGER.debug(
+                "Message to '%s' in '%s': avatar not registered on this node (404)",
                 avatar, world,
             )
         else:

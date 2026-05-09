@@ -1,11 +1,10 @@
 
-from homeassistant.components.webhook import async_register
-from homeassistant.components import persistent_notification
+from homeassistant import config_entries
+from homeassistant.components.webhook import async_register, async_unregister
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers import discovery, entity_registry as er, label_registry as lr
 from homeassistant.util import slugify
 from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
@@ -43,6 +42,18 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass, config):
+    """YAML shim — triggers the import flow when mmo_bridge: is in configuration.yaml."""
+    if DOMAIN in config:
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": config_entries.SOURCE_IMPORT}
+            )
+        )
+    return True
+
+
+async def async_setup_entry(hass, entry):
+    """Set up MMO Bridge from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     # ── v0.2.0 data shapes ────────────────────────────────────────────────────
@@ -508,37 +519,29 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "region_say", handle_region_say)
 
-    # Register mmo_bridge.reload service — reloads sensor + notify platforms
-    # without restarting HA. Changes to __init__.py still require a full restart.
-    await async_setup_reload_service(hass, DOMAIN, ["sensor", "notify"])
-
-    # Load sensor platform
+    # Load sensor and notify platforms
     hass.async_create_task(
-        discovery.async_load_platform(hass, "sensor", DOMAIN, {}, config)
+        discovery.async_load_platform(hass, "sensor", DOMAIN, {}, {})
+    )
+    hass.async_create_task(
+        discovery.async_load_platform(hass, "notify", DOMAIN, {}, {})
     )
 
-    # Build a user-visible URL to paste into adapters
     path = f"/api/webhook/mmo_bridge?token={token}"
-    base = None
     try:
         base = get_url(hass, prefer_external=True)
+        full_url = f"{base}{path}"
     except NoURLAvailableError:
-        pass
-    full_url = f"{base}{path}" if base else path
-
-    message = (
-        "MMO Bridge webhook is ready. Copy this URL into your adapter (e.g., LSL script):\n\n"
-        f"URL: {full_url}\n"
-        f"Token: {token}\n"
-        "If no base URL is shown, configure Home Assistant external/internal URL settings."
-    )
-    persistent_notification.async_create(
-        hass,
-        message,
-        title="MMO Bridge",
-        notification_id="mmo_bridge_webhook_info",
-    )
+        full_url = path
     _LOGGER.info("MMO Bridge webhook URL: %s", full_url)
+    return True
+
+
+async def async_unload_entry(hass, entry):
+    """Unload a MMO Bridge config entry."""
+    async_unregister(hass, "mmo_bridge")
+    for svc in ("request_update", "send_message", "set_object_text", "region_say"):
+        hass.services.async_remove(DOMAIN, svc)
     return True
 
 
