@@ -5,7 +5,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
 import logging
 
-from . import DOMAIN, SIGNAL_PRESENCE_UPDATED, SIGNAL_NODE_UPDATED
+from . import DOMAIN, SIGNAL_PRESENCE_UPDATED, SIGNAL_NODE_UPDATED, SIGNAL_PARCEL_UPDATED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -161,4 +161,63 @@ class MMOBridgeWorldDataSensor(SensorEntity):
                 self._native_value = self._cast_fn(raw)
             except (ValueError, TypeError):
                 self._native_value = None
+        self.async_write_ha_state()
+
+
+class MMOBridgeParcelAgentsSensor(SensorEntity):
+    """Sensor tracking every avatar currently on the parcel for a given node.
+
+    State  = number of avatars present.
+    Attributes include the full list of names so automations can check who's there.
+    """
+
+    _attr_icon                        = "mdi:map-marker-account"
+    _attr_state_class                 = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement  = "avatars"
+    _attr_should_poll                 = False
+
+    def __init__(self, hass, world, node_id):
+        self._hass    = hass
+        self._world   = world
+        self._node_id = node_id
+        self._agents  = []
+
+    @property
+    def name(self):
+        node_label = self._node_id.replace("_", " ").title()
+        return f"MMO Bridge {self._world.title()} {node_label} Parcel"
+
+    @property
+    def unique_id(self):
+        return f"{DOMAIN}_{self._world}_{self._node_id}_parcel_agents"
+
+    @property
+    def native_value(self):
+        return len(self._agents)
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "world":   self._world,
+            "node_id": self._node_id,
+            "agents":  [a.get("name") or a.get("key", "") for a in self._agents],
+        }
+
+    async def async_added_to_hass(self):
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_PARCEL_UPDATED, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self, world, node_id):
+        if world != self._world or node_id != self._node_id:
+            return
+        self._agents = (
+            self.hass.data[DOMAIN]
+            .get("parcel_agents", {})
+            .get(self._world, {})
+            .get(self._node_id, [])
+        )
         self.async_write_ha_state()

@@ -21,6 +21,7 @@ import time
 DOMAIN = "mmo_bridge"
 SIGNAL_PRESENCE_UPDATED = f"{DOMAIN}_presence_updated"
 SIGNAL_NODE_UPDATED     = f"{DOMAIN}_node_updated"
+SIGNAL_PARCEL_UPDATED   = f"{DOMAIN}_parcel_updated"
 
 # Protocol version — bump when making breaking changes to the webhook payload
 # schema. LSL scripts include this in every payload; HA checks it and rejects
@@ -69,6 +70,7 @@ async def async_setup_entry(hass, entry):
     hass.data[DOMAIN]["known_avatars"]       = {}
     hass.data[DOMAIN]["avatar_state"]        = {}
     hass.data[DOMAIN]["avatar_hmac_secrets"] = {}
+    hass.data[DOMAIN]["parcel_agents"]       = {}  # parcel_agents[world][node_id] = [{key, name}, ...]
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
     # Load persisted token, nodes, and HMAC secrets.
@@ -211,6 +213,42 @@ async def async_setup_entry(hass, entry):
                 "inworld_trigger: '%s' from '%s' in '%s'",
                 trigger_name, data.get("owner", "unknown"), world,
             )
+            return web.Response(text="OK")
+
+        # ── Parcel agent list ─────────────────────────────────────────────────
+        if payload_type == "parcel_agents":
+            agents = data.get("agents", [])   # [{key, name}, ...]
+
+            hass.data[DOMAIN]["parcel_agents"].setdefault(world, {})
+            prev      = hass.data[DOMAIN]["parcel_agents"][world].get(node_id, [])
+            prev_keys = {a["key"] for a in prev}
+            new_keys  = {a["key"] for a in agents}
+            by_key    = {a["key"]: a for a in agents}
+            prev_map  = {a["key"]: a for a in prev}
+
+            for key in new_keys - prev_keys:
+                agent = by_key[key]
+                hass.bus.async_fire(f"{DOMAIN}_parcel_arrived", {
+                    "world":   world,
+                    "node_id": node_id,
+                    "key":     key,
+                    "name":    agent.get("name", ""),
+                })
+                _LOGGER.debug("Parcel arrived: %s in %s", agent.get("name", key), world)
+
+            for key in prev_keys - new_keys:
+                agent = prev_map[key]
+                hass.bus.async_fire(f"{DOMAIN}_parcel_left", {
+                    "world":   world,
+                    "node_id": node_id,
+                    "key":     key,
+                    "name":    agent.get("name", ""),
+                })
+                _LOGGER.debug("Parcel left: %s in %s", agent.get("name", key), world)
+
+            hass.data[DOMAIN]["parcel_agents"][world][node_id] = agents
+            _ensure_parcel_sensor(hass, world, node_id)
+            async_dispatcher_send(hass, SIGNAL_PARCEL_UPDATED, world, node_id)
             return web.Response(text="OK")
 
         # ── Standard node/presence/state processing ───────────────────────────
@@ -768,6 +806,21 @@ def _ensure_node_sensors(hass, world, node_id):
 
     if new_entities:
         add_entities(new_entities)
+
+
+def _ensure_parcel_sensor(hass, world, node_id):
+    """Create the parcel-agents sensor for a node (idempotent)."""
+    from .sensor import MMOBridgeParcelAgentsSensor
+    existing     = hass.data[DOMAIN].setdefault("sensor_entities", {})
+    key          = f"{world}__{node_id}__parcel_agents"
+    if key in existing:
+        return
+    add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
+    if add_entities is None:
+        return
+    entity       = MMOBridgeParcelAgentsSensor(hass, world, node_id)
+    existing[key] = entity
+    add_entities([entity])
 
 
 def _ensure_sensor(hass, world):
