@@ -185,11 +185,11 @@ class MMOBridgeParcelAgentsSensor(SensorEntity):
     @property
     def name(self):
         node_label = self._node_id.replace("_", " ").title()
-        return f"MMO Bridge {self._world.title()} {node_label} Parcel"
+        return f"MMO Bridge {self._world.title()} {node_label} Parcel Visitors"
 
     @property
     def unique_id(self):
-        return f"{DOMAIN}_{self._world}_{self._node_id}_parcel_agents"
+        return f"{DOMAIN}_{self._world}_{self._node_id}_parcel_visitors"
 
     @property
     def native_value(self):

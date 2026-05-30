@@ -812,7 +812,7 @@ def _ensure_parcel_sensor(hass, world, node_id):
     """Create the parcel-agents sensor for a node (idempotent)."""
     from .sensor import MMOBridgeParcelAgentsSensor
     existing     = hass.data[DOMAIN].setdefault("sensor_entities", {})
-    key          = f"{world}__{node_id}__parcel_agents"
+    key          = f"{world}__{node_id}__parcel_visitors"
     if key in existing:
         return
     add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")

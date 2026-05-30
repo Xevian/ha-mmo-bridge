@@ -1,24 +1,30 @@
 // =============================================================================
-//  MMO Bridge — Parcel Agent Monitor
-//  Tracks every avatar currently on the parcel and reports to Home Assistant.
+//  MMO Bridge — Parcel Visitor Monitor  (optional plugin)
+//
+//  Tracks every avatar currently on the parcel (including visitors who are
+//  not registered with your Hub) and reports the list to Home Assistant.
+//
+//  Usage — two options:
+//    A) Drop this script INTO your Hub object alongside sl_notify_controller.
+//       It will automatically share the Hub's linkset data (webhook URL,
+//       node_id, world) — no extra configuration needed.
+//
+//    B) Drop it into any other rezzed object on the parcel and set the
+//       linkset data keys manually (see below).
 //
 //  Events fired in HA:
-//    mmo_bridge_parcel_arrived  {world, node_id, key, name}
-//    mmo_bridge_parcel_left     {world, node_id, key, name}
+//    mmo_bridge_parcel_arrived  { world, node_id, key, name }
+//    mmo_bridge_parcel_left     { world, node_id, key, name }
 //
 //  Sensor created in HA:
-//    sensor.mmo_bridge_<world>_<node_id>_parcel  (state = count, attrs = names)
+//    sensor.mmo_bridge_<world>_<node_id>_parcel_visitors
+//      state      = number of avatars on the parcel
+//      attributes = agents list (names)
 //
-//  Setup:
-//    1. Drop this script into any object sitting on your parcel.
-//    2. Set WEBHOOK_URL and NODE_ID via linkset data (see llLinksetDataWrite calls
-//       in state_entry), or hard-code them below.
-//    3. The object must remain rezzed and on the parcel to keep reporting.
-//
-//  Linkset data keys (set from another script or the Hub):
-//    mmo_webhook_url  — full webhook URL including ?token=...
-//    mmo_node_id      — node identifier (must match your Hub's node_id)
-//    mmo_world        — optional, defaults to "secondlife"
+//  Linkset data keys (auto-populated by Hub, or set manually):
+//    mmo_webhook_url   — full webhook URL including ?token=...
+//    mmo_node_id       — node identifier (must match your Hub's node_id)
+//    mmo_world         — optional, defaults to "secondlife"
 //    mmo_poll_interval — optional poll interval in seconds, default 15
 // =============================================================================
 
