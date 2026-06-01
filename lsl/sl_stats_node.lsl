@@ -43,6 +43,8 @@ integer region_restarted     = FALSE;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// NOTE: computeNodeId() is duplicated verbatim in sl_notify_controller.lsl.
+// If you change this function, update that file too.
 string computeNodeId() {
     vector pos    = llGetPos();
     list   parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);

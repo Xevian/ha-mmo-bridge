@@ -1,11 +1,10 @@
 
-from homeassistant.components.webhook import async_register
-from homeassistant.components import persistent_notification
+from homeassistant import config_entries
+from homeassistant.components.webhook import async_register, async_unregister
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.network import get_url, NoURLAvailableError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers import discovery, entity_registry as er, label_registry as lr
 from homeassistant.util import slugify
 from homeassistant.const import STATE_HOME, STATE_NOT_HOME, STATE_UNAVAILABLE
@@ -41,8 +40,25 @@ MMO_LABEL_PREFIX = "MMO - "
 
 _LOGGER = logging.getLogger(__name__)
 
+# Payload types with dedicated handlers — anything else fires mmo_bridge_plugin_data
+_KNOWN_PAYLOAD_TYPES = frozenset({
+    "hud_list_scripts", "hud_command", "inworld_trigger", "parcel_agents",
+})
+
 
 async def async_setup(hass, config):
+    """YAML shim — triggers the import flow when mmo_bridge: is in configuration.yaml."""
+    if DOMAIN in config:
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": config_entries.SOURCE_IMPORT}
+            )
+        )
+    return True
+
+
+async def async_setup_entry(hass, entry):
+    """Set up MMO Bridge from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     # ── v0.2.0 data shapes ────────────────────────────────────────────────────
@@ -58,6 +74,7 @@ async def async_setup(hass, config):
     hass.data[DOMAIN]["known_avatars"]       = {}
     hass.data[DOMAIN]["avatar_state"]        = {}
     hass.data[DOMAIN]["avatar_hmac_secrets"] = {}
+    hass.data[DOMAIN]["parcel_agents"]       = {}  # parcel_agents[world][node_id] = [{key, name}, ...]
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
     # Load persisted token, nodes, and HMAC secrets.
@@ -65,12 +82,15 @@ async def async_setup(hass, config):
     stored = await store.async_load() or {}
 
     # Migrate v1 flat adapters → v2 nested nodes
+    _migrated = False
     if stored and stored.get("version", 1) == 1:
-        stored = _migrate_v1_to_v2(stored)
+        stored    = _migrate_v1_to_v2(stored)
+        _migrated = True
 
     token = stored.get("token")
     if not token:
-        token = secrets.token_urlsafe(24)
+        token     = secrets.token_urlsafe(24)
+        _migrated = True  # new token — persist immediately
     hass.data[DOMAIN]["token"] = token
 
     # Restore per-avatar HMAC secrets
@@ -83,9 +103,12 @@ async def async_setup(hass, config):
         hass.data[DOMAIN]["avatar_home"][world]     = {}
         _LOGGER.info("Restored %d node(s) for world '%s' from storage", len(nodes), world)
 
-    await store.async_save(_make_store_payload(
-        token, hass.data[DOMAIN]["nodes"], hass.data[DOMAIN]["avatar_hmac_secrets"]
-    ))
+    # Only persist if something actually changed (migration ran or new token issued).
+    # Avoids a redundant write on every normal restart.
+    if _migrated:
+        await store.async_save(_make_store_payload(
+            token, hass.data[DOMAIN]["nodes"], hass.data[DOMAIN]["avatar_hmac_secrets"]
+        ))
 
     # Ensure the global "MMO Script" label exists in HA
     _ensure_mmo_labels(hass)
@@ -103,6 +126,8 @@ async def async_setup(hass, config):
 
         world        = data.get("world", "secondlife")
         payload_type = data.get("type", "")
+        raw_node_id  = data.get("node_id", "")
+        node_id      = slugify(raw_node_id) if raw_node_id else "default"
 
         # ── Protocol version check ────────────────────────────────────────────
         script_proto = data.get("protocol")
@@ -190,11 +215,11 @@ async def async_setup(hass, config):
             trigger_name = data.get("trigger", "")
             if not trigger_name:
                 return web.Response(status=400, text="missing trigger field")
-            raw_nid = data.get("node_id", "")
             # Pass all fields through; ensure world and node_id are present
-            event_data          = dict(data)
+            # (node_id already computed at the top of the handler)
+            event_data            = dict(data)
             event_data["world"]   = world
-            event_data["node_id"] = slugify(raw_nid) if raw_nid else "default"
+            event_data["node_id"] = node_id
             hass.bus.async_fire(f"{DOMAIN}_inworld_trigger", event_data)
             _LOGGER.info(
                 "inworld_trigger: '%s' from '%s' in '%s'",
@@ -202,9 +227,65 @@ async def async_setup(hass, config):
             )
             return web.Response(text="OK")
 
+        # ── Parcel agent list ─────────────────────────────────────────────────
+        if payload_type == "parcel_agents":
+            agents = data.get("agents", [])   # [{key, name}, ...]
+
+            # Drop any malformed entries missing the "key" field so they
+            # never reach the set arithmetic or event firing below.
+            agents    = [a for a in agents if a.get("key")]
+            hass.data[DOMAIN]["parcel_agents"].setdefault(world, {})
+            prev      = hass.data[DOMAIN]["parcel_agents"][world].get(node_id, [])
+            prev_keys = {a["key"] for a in prev}
+            new_keys  = {a["key"] for a in agents}
+            by_key    = {a["key"]: a for a in agents}
+            prev_map  = {a["key"]: a for a in prev}
+
+            for key in new_keys - prev_keys:
+                agent = by_key[key]
+                hass.bus.async_fire(f"{DOMAIN}_parcel_arrived", {
+                    "world":   world,
+                    "node_id": node_id,
+                    "key":     key,
+                    "name":    agent.get("name", ""),
+                })
+                _LOGGER.debug("Parcel arrived: %s in %s", agent.get("name", key), world)
+
+            for key in prev_keys - new_keys:
+                agent = prev_map[key]
+                hass.bus.async_fire(f"{DOMAIN}_parcel_left", {
+                    "world":   world,
+                    "node_id": node_id,
+                    "key":     key,
+                    "name":    agent.get("name", ""),
+                })
+                _LOGGER.debug("Parcel left: %s in %s", agent.get("name", key), world)
+
+            hass.data[DOMAIN]["parcel_agents"][world][node_id] = agents
+
+            # Keep the existing world_data agents_on_parcel count in sync so
+            # the world_data sensor reflects the plugin's fresher data.
+            world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
+            if node_id in world_nodes:
+                world_nodes[node_id].setdefault("world_data", {})
+                world_nodes[node_id]["world_data"]["agents_on_parcel"] = len(agents)
+            _ensure_node_sensors(hass, world, node_id)
+            async_dispatcher_send(hass, SIGNAL_NODE_UPDATED, world, node_id)
+            return web.Response(text="OK")
+
+        # ── Generic plugin passthrough ────────────────────────────────────────
+        # Any named payload type not explicitly handled above fires a generic
+        # mmo_bridge_plugin_data event. Custom LSL plugins can use this without
+        # needing a dedicated HA handler — just react to the event in automations.
+        if payload_type and payload_type not in _KNOWN_PAYLOAD_TYPES:
+            event_data            = dict(data)
+            event_data["world"]   = world
+            event_data["node_id"] = node_id
+            hass.bus.async_fire(f"{DOMAIN}_plugin_data", event_data)
+            _LOGGER.debug("plugin_data: type='%s' from node '%s'", payload_type, node_id)
+            return web.Response(text="OK")
+
         # ── Standard node/presence/state processing ───────────────────────────
-        raw_node_id  = data.get("node_id", "")
-        node_id      = slugify(raw_node_id) if raw_node_id else "default"
 
         # ── Node registration / URL update ────────────────────────────────────
         if "adapter_url" in data or "lsl_url" in data:
@@ -508,37 +589,33 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "region_say", handle_region_say)
 
-    # Register mmo_bridge.reload service — reloads sensor + notify platforms
-    # without restarting HA. Changes to __init__.py still require a full restart.
-    await async_setup_reload_service(hass, DOMAIN, ["sensor", "notify"])
-
-    # Load sensor platform
+    # Load sensor and notify platforms
     hass.async_create_task(
-        discovery.async_load_platform(hass, "sensor", DOMAIN, {}, config)
+        discovery.async_load_platform(hass, "sensor", DOMAIN, {}, {})
+    )
+    hass.async_create_task(
+        discovery.async_load_platform(hass, "notify", DOMAIN, {}, {})
     )
 
-    # Build a user-visible URL to paste into adapters
     path = f"/api/webhook/mmo_bridge?token={token}"
-    base = None
     try:
         base = get_url(hass, prefer_external=True)
+        full_url = f"{base}{path}"
     except NoURLAvailableError:
-        pass
-    full_url = f"{base}{path}" if base else path
-
-    message = (
-        "MMO Bridge webhook is ready. Copy this URL into your adapter (e.g., LSL script):\n\n"
-        f"URL: {full_url}\n"
-        f"Token: {token}\n"
-        "If no base URL is shown, configure Home Assistant external/internal URL settings."
-    )
-    persistent_notification.async_create(
-        hass,
-        message,
-        title="MMO Bridge",
-        notification_id="mmo_bridge_webhook_info",
-    )
+        full_url = path
     _LOGGER.info("MMO Bridge webhook URL: %s", full_url)
+    return True
+
+
+async def async_unload_entry(hass, entry):
+    """Unload a MMO Bridge config entry."""
+    async_unregister(hass, "mmo_bridge")
+    for svc in ("request_update", "send_message", "set_object_text", "region_say"):
+        hass.services.async_remove(DOMAIN, svc)
+    # Clear runtime state so a subsequent async_setup_entry starts clean.
+    # Without this, stale sensor_entities survive a reload and end up with no
+    # update listeners — the entities appear in HA but never update.
+    hass.data.pop(DOMAIN, None)
     return True
 
 

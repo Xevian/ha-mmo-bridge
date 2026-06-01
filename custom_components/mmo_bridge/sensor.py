@@ -133,10 +133,22 @@ class MMOBridgeWorldDataSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        return {
+        attrs = {
             "world":   self._world,
             "node_id": self._node_id,
         }
+        # If the parcel monitor plugin is running, include the name list so
+        # automations can check who is on the parcel without a separate sensor.
+        if self._key == "agents_on_parcel":
+            agents = (
+                self.hass.data[DOMAIN]
+                .get("parcel_agents", {})
+                .get(self._world, {})
+                .get(self._node_id, [])
+            )
+            if agents:
+                attrs["agents"] = [a.get("name") or a.get("key", "") for a in agents]
+        return attrs
 
     async def async_added_to_hass(self):
         self.async_on_remove(
@@ -162,3 +174,5 @@ class MMOBridgeWorldDataSensor(SensorEntity):
             except (ValueError, TypeError):
                 self._native_value = None
         self.async_write_ha_state()
+
+
