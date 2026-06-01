@@ -21,7 +21,6 @@ import time
 DOMAIN = "mmo_bridge"
 SIGNAL_PRESENCE_UPDATED = f"{DOMAIN}_presence_updated"
 SIGNAL_NODE_UPDATED     = f"{DOMAIN}_node_updated"
-SIGNAL_PARCEL_UPDATED   = f"{DOMAIN}_parcel_updated"
 
 # Protocol version — bump when making breaking changes to the webhook payload
 # schema. LSL scripts include this in every payload; HA checks it and rejects
@@ -249,8 +248,15 @@ async def async_setup_entry(hass, entry):
                 _LOGGER.debug("Parcel left: %s in %s", agent.get("name", key), world)
 
             hass.data[DOMAIN]["parcel_agents"][world][node_id] = agents
-            _ensure_parcel_sensor(hass, world, node_id)
-            async_dispatcher_send(hass, SIGNAL_PARCEL_UPDATED, world, node_id)
+
+            # Keep the existing world_data agents_on_parcel count in sync so
+            # the world_data sensor reflects the plugin's fresher data.
+            world_nodes = hass.data[DOMAIN]["nodes"].get(world, {})
+            if node_id in world_nodes:
+                world_nodes[node_id].setdefault("world_data", {})
+                world_nodes[node_id]["world_data"]["agents_on_parcel"] = len(agents)
+            _ensure_node_sensors(hass, world, node_id)
+            async_dispatcher_send(hass, SIGNAL_NODE_UPDATED, world, node_id)
             return web.Response(text="OK")
 
         # ── Generic plugin passthrough ────────────────────────────────────────
@@ -821,21 +827,6 @@ def _ensure_node_sensors(hass, world, node_id):
 
     if new_entities:
         add_entities(new_entities)
-
-
-def _ensure_parcel_sensor(hass, world, node_id):
-    """Create the parcel-agents sensor for a node (idempotent)."""
-    from .sensor import MMOBridgeParcelAgentsSensor
-    existing     = hass.data[DOMAIN].setdefault("sensor_entities", {})
-    key          = f"{world}__{node_id}__parcel_visitors"
-    if key in existing:
-        return
-    add_entities = hass.data[DOMAIN].get("async_add_sensor_entities")
-    if add_entities is None:
-        return
-    entity       = MMOBridgeParcelAgentsSensor(hass, world, node_id)
-    existing[key] = entity
-    add_entities([entity])
 
 
 def _ensure_sensor(hass, world):
