@@ -116,6 +116,8 @@ async def async_setup_entry(hass, entry):
 
         world        = data.get("world", "secondlife")
         payload_type = data.get("type", "")
+        raw_node_id  = data.get("node_id", "")
+        node_id      = slugify(raw_node_id) if raw_node_id else "default"
 
         # ── Protocol version check ────────────────────────────────────────────
         script_proto = data.get("protocol")
@@ -267,8 +269,6 @@ async def async_setup_entry(hass, entry):
             return web.Response(text="OK")
 
         # ── Standard node/presence/state processing ───────────────────────────
-        raw_node_id  = data.get("node_id", "")
-        node_id      = slugify(raw_node_id) if raw_node_id else "default"
 
         # ── Node registration / URL update ────────────────────────────────────
         if "adapter_url" in data or "lsl_url" in data:
