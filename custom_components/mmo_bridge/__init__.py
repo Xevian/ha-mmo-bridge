@@ -75,6 +75,7 @@ async def async_setup_entry(hass, entry):
     hass.data[DOMAIN]["avatar_state"]        = {}
     hass.data[DOMAIN]["avatar_hmac_secrets"] = {}
     hass.data[DOMAIN]["parcel_agents"]       = {}  # parcel_agents[world][node_id] = [{key, name}, ...]
+    hass.data[DOMAIN]["node_at_home"]        = {}  # node_at_home[world][node_id] = set of names
     hass.data[DOMAIN]["async_add_sensor_entities"] = None
 
     # Load persisted token, nodes, and HMAC secrets.
@@ -346,6 +347,8 @@ async def async_setup_entry(hass, entry):
                 hass.data[DOMAIN]["avatar_home"][world]     = {}
             if world not in hass.data[DOMAIN]["node_online"]:
                 hass.data[DOMAIN]["node_online"][world] = {}
+            if world not in hass.data[DOMAIN]["node_at_home"]:
+                hass.data[DOMAIN]["node_at_home"][world] = {}
 
             # Store this node's view of who is online, then merge across all
             # nodes for the world. This prevents one Hub from wiping presence
@@ -367,13 +370,20 @@ async def async_setup_entry(hass, entry):
 
             hass.data[DOMAIN]["online_by_world"][world] = list(new_online)
 
-            # Update at-home status only for avatars this specific node tracks.
-            # Each Hub only knows about the avatars registered with IT, so we
-            # must not let one Hub overwrite another Hub's at-home data.
+            # Per-node at_home tracking — mirrors the node_online merge pattern.
+            # Store each Hub's view of who is home, then derive avatar_home as
+            # the union: an avatar is "home" if ANY Hub reports them on its parcel.
+            # This prevents Hub B (at a different location) from overwriting Hub A's
+            # "home" report for avatars registered on both Hubs.
             if "at_home" in data:
-                at_home_set = set(data["at_home"])
-                for avatar in data["online"]:
-                    hass.data[DOMAIN]["avatar_home"][world][avatar] = avatar in at_home_set
+                hass.data[DOMAIN]["node_at_home"][world][node_id] = set(data["at_home"])
+
+            for avatar in data["online"]:
+                is_home = any(
+                    avatar in at_home_set
+                    for at_home_set in hass.data[DOMAIN]["node_at_home"][world].values()
+                )
+                hass.data[DOMAIN]["avatar_home"][world][avatar] = is_home
 
             # Region restart event
             if data.get("region_restart"):
