@@ -42,6 +42,12 @@ integer trig_listen_handle = 0;
 // Must match the constant in sl_avatar_hud.lsl.
 integer BRIDGE_HUD_CHANNEL = -1296912194;
 
+// Plugin protocol — any script in the same object can send a plugin payload
+// to HA by calling: llMessageLinked(LINK_SET, MMO_PLUGIN_MSG, json, "")
+// The Hub injects world/node_id/protocol and forwards it to HA.
+// Must match the constant in all plugin scripts.
+integer MMO_PLUGIN_MSG = 0x4D4D4F;
+
 // ── Async online checks ───────────────────────────────────────────────────────
 integer pending_checks   = 0;
 list    request_id_to_name;
@@ -767,6 +773,20 @@ default {
             return;
         }
         sendPresenceNow();
+    }
+
+    link_message(integer sender_num, integer num, string str, key id) {
+        if (num != MMO_PLUGIN_MSG) return;
+        if (!is_ready || ha_url == "") return;
+
+        // Inject routing fields — plugins don't need to know these
+        string payload = llJsonSetValue(str,     ["world"],    "secondlife");
+        payload        = llJsonSetValue(payload, ["node_id"],  computeNodeId());
+        payload        = llJsonSetValue(payload, ["protocol"], (string)PROTOCOL_VERSION);
+
+        llHTTPRequest(ha_url,
+            [HTTP_METHOD, "POST", HTTP_MIMETYPE, "application/json"],
+            payload);
     }
 
     dataserver(key req, string data) {

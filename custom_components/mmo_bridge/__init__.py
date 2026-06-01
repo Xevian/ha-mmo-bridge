@@ -251,6 +251,21 @@ async def async_setup_entry(hass, entry):
             async_dispatcher_send(hass, SIGNAL_PARCEL_UPDATED, world, node_id)
             return web.Response(text="OK")
 
+        # ── Generic plugin passthrough ────────────────────────────────────────
+        # Any named payload type not explicitly handled above fires a generic
+        # mmo_bridge_plugin_data event. Custom LSL plugins can use this without
+        # needing a dedicated HA handler — just react to the event in automations.
+        _KNOWN_TYPES = {
+            "hud_list_scripts", "hud_command", "inworld_trigger", "parcel_agents",
+        }
+        if payload_type and payload_type not in _KNOWN_TYPES:
+            event_data            = dict(data)
+            event_data["world"]   = world
+            event_data["node_id"] = node_id
+            hass.bus.async_fire(f"{DOMAIN}_plugin_data", event_data)
+            _LOGGER.debug("plugin_data: type='%s' from node '%s'", payload_type, node_id)
+            return web.Response(text="OK")
+
         # ── Standard node/presence/state processing ───────────────────────────
         raw_node_id  = data.get("node_id", "")
         node_id      = slugify(raw_node_id) if raw_node_id else "default"

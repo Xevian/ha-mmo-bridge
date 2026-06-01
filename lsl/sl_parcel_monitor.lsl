@@ -1,16 +1,11 @@
 // =============================================================================
-//  MMO Bridge — Parcel Visitor Monitor  (optional plugin)
+//  MMO Bridge — Parcel Visitor Monitor  (plugin)
 //
-//  Tracks every avatar currently on the parcel (including visitors who are
-//  not registered with your Hub) and reports the list to Home Assistant.
-//
-//  Usage — two options:
-//    A) Drop this script INTO your Hub object alongside sl_notify_controller.
-//       It will automatically share the Hub's linkset data (webhook URL,
-//       node_id, world) — no extra configuration needed.
-//
-//    B) Drop it into any other rezzed object on the parcel and set the
-//       linkset data keys manually (see below).
+//  Drop this script into the Hub object alongside sl_notify_controller.lsl.
+//  It polls llGetAgentList every POLL_INTERVAL seconds, resolves display
+//  names, then hands the list to the Hub via link_message. The Hub injects
+//  the webhook URL, auth token, node_id and world — this script needs none
+//  of that.
 //
 //  Events fired in HA:
 //    mmo_bridge_parcel_arrived  { world, node_id, key, name }
@@ -21,71 +16,48 @@
 //      state      = number of avatars on the parcel
 //      attributes = agents list (names)
 //
-//  Linkset data keys (auto-populated by Hub, or set manually):
-//    mmo_webhook_url   — full webhook URL including ?token=...
-//    mmo_node_id       — node identifier (must match your Hub's node_id)
-//    mmo_world         — optional, defaults to "secondlife"
-//    mmo_poll_interval — optional poll interval in seconds, default 15
+//  To use as a standalone object (not inside the Hub), see the commented-out
+//  version at the bottom of this file — that variant needs its own URL and
+//  node_id set via linkset data.
 // =============================================================================
 
-string LD_WEBHOOK       = "mmo_webhook_url";
-string LD_NODE_ID       = "mmo_node_id";
-string LD_WORLD         = "mmo_world";
-string LD_POLL_INTERVAL = "mmo_poll_interval";
+// Must match the constant in sl_notify_controller.lsl
+integer MMO_PLUGIN_MSG = 0x4D4D4F;
 
-string g_webhook_url;
-string g_node_id;
-string g_world = "secondlife";
-float  g_poll_interval = 15.0;
+// How often to poll (seconds). Lower = more responsive but more HTTP traffic.
+// Minimum recommended: 10s. Match or exceed the Hub's poll interval.
+float POLL_INTERVAL = 15.0;
 
-// Name-resolution state
-list   g_pending_keys;   // UUIDs still waiting for display-name lookup
-list   g_resolved;       // completed entries as "uuid|display_name"
-key    g_name_req;       // current outstanding llRequestDisplayName key
+// ── State ─────────────────────────────────────────────────────────────────────
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+list g_pending_keys;  // UUIDs still waiting for display-name resolution
+list g_resolved;      // completed entries as "uuid|display_name"
+key  g_name_req;      // outstanding llRequestDisplayName request key
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 string jsonEscape(string s) {
-    // Escape backslash and double-quote for JSON string values
     s = llDumpList2String(llParseStringKeepNulls(s, ["\\"], []), "\\\\");
     s = llDumpList2String(llParseStringKeepNulls(s, ["\""], []), "\\\"");
     return s;
 }
 
-postToHA() {
-    if (g_webhook_url == "") {
-        llOwnerSay("[Parcel Monitor] No webhook URL set — skipping post.");
-        return;
-    }
-
-    // Build agents JSON array from resolved list
+sendToHub() {
     string agents_json = "[";
     integer i;
     integer n = llGetListLength(g_resolved);
     for (i = 0; i < n; i++) {
-        string entry  = llList2String(g_resolved, i);
-        integer sep   = llSubStringIndex(entry, "|");
-        string  k     = llGetSubString(entry, 0, sep - 1);
-        string  nm    = jsonEscape(llGetSubString(entry, sep + 1, -1));
+        string entry = llList2String(g_resolved, i);
+        integer sep  = llSubStringIndex(entry, "|");
+        string k     = llGetSubString(entry, 0, sep - 1);
+        string nm    = jsonEscape(llGetSubString(entry, sep + 1, -1));
         if (i > 0) agents_json += ",";
         agents_json += "{\"key\":\"" + k + "\",\"name\":\"" + nm + "\"}";
     }
     agents_json += "]";
 
-    string body = "{"
-        + "\"type\":\"parcel_agents\","
-        + "\"world\":\"" + g_world + "\","
-        + "\"node_id\":\"" + g_node_id + "\","
-        + "\"agents\":" + agents_json
-        + "}";
-
-    llHTTPRequest(
-        g_webhook_url,
-        [HTTP_METHOD, "POST",
-         HTTP_MIMETYPE, "application/json",
-         HTTP_BODY_MAXLENGTH, 16384],
-        body
-    );
+    string payload = "{\"type\":\"parcel_agents\",\"agents\":" + agents_json + "}";
+    llMessageLinked(LINK_SET, MMO_PLUGIN_MSG, payload, "");
 }
 
 startPoll() {
@@ -93,51 +65,21 @@ startPoll() {
     g_resolved     = [];
 
     if (llGetListLength(g_pending_keys) == 0) {
-        // Parcel is empty — post immediately so HA clears its list
-        postToHA();
+        // Parcel is empty — send immediately so HA clears its list
+        sendToHub();
         return;
     }
 
-    // Kick off async name resolution for the first agent
+    // Resolve names one at a time via dataserver
     g_name_req = llRequestDisplayName(llList2Key(g_pending_keys, 0));
 }
 
-loadConfig() {
-    string url = llLinksetDataRead(LD_WEBHOOK);
-    if (url != "") g_webhook_url = url;
-
-    string nid = llLinksetDataRead(LD_NODE_ID);
-    if (nid != "") g_node_id = nid;
-
-    string w = llLinksetDataRead(LD_WORLD);
-    if (w != "") g_world = w;
-
-    string pi = llLinksetDataRead(LD_POLL_INTERVAL);
-    if ((integer)pi > 0) g_poll_interval = (float)pi;
-}
-
-// ── Default state ─────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 default {
     state_entry() {
-        loadConfig();
-
-        if (g_webhook_url == "" || g_node_id == "") {
-            llOwnerSay(
-                "[Parcel Monitor] Not configured. Set linkset data:\n"
-                + "  " + LD_WEBHOOK + " = <your webhook URL>\n"
-                + "  " + LD_NODE_ID + " = <node id>"
-            );
-            // Don't start polling until configured
-            return;
-        }
-
-        llOwnerSay("[Parcel Monitor] Starting — polling every "
-            + (string)((integer)g_poll_interval) + "s for world '"
-            + g_world + "' node '" + g_node_id + "'");
-
-        llSetTimerEvent(g_poll_interval);
-        startPoll();  // immediate first poll
+        llSetTimerEvent(POLL_INTERVAL);
+        startPoll();
     }
 
     timer() {
@@ -145,50 +87,25 @@ default {
     }
 
     dataserver(key request_id, string data) {
-        // Only handle our own outstanding name request
         if (request_id != g_name_req) return;
 
-        key agent_key = llList2Key(g_pending_keys, 0);
-        string name   = data;
-
-        // Fallback: if display name is blank, try the legacy name; if still
-        // blank, use the UUID string so HA always has something to show.
-        if (name == "") {
-            name = llKey2Name(agent_key);
-        }
-        if (name == "") {
-            name = (string)agent_key;
-        }
+        key    agent_key = llList2Key(g_pending_keys, 0);
+        string name      = data;
+        if (name == "") name = llKey2Name(agent_key);   // legacy name fallback
+        if (name == "") name = (string)agent_key;       // UUID fallback
 
         g_resolved    += [(string)agent_key + "|" + name];
         g_pending_keys = llDeleteSubList(g_pending_keys, 0, 0);
 
         if (llGetListLength(g_pending_keys) > 0) {
-            // More agents to resolve
             g_name_req = llRequestDisplayName(llList2Key(g_pending_keys, 0));
         } else {
-            // All names resolved — post to HA
-            postToHA();
-        }
-    }
-
-    http_response(key request_id, integer status, list metadata, string body) {
-        if (status != 200) {
-            llOwnerSay("[Parcel Monitor] Webhook error " + (string)status
-                + ": " + body);
-        }
-    }
-
-    // Reload config if linkset data changes (e.g. Hub updates the URL)
-    linkset_data(integer action, string name, string value) {
-        if (name == LD_WEBHOOK || name == LD_NODE_ID
-                || name == LD_WORLD || name == LD_POLL_INTERVAL) {
-            llResetScript();
+            sendToHub();
         }
     }
 
     changed(integer change) {
-        if (change & CHANGED_OWNER) llResetScript();
-        if (change & CHANGED_REGION) llResetScript();
+        if (change & (CHANGED_OWNER | CHANGED_REGION | CHANGED_REGION_START))
+            llResetScript();
     }
 }
