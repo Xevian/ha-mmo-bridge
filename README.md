@@ -10,11 +10,13 @@ Connects your Second Life avatar to Home Assistant. Track who is online, monitor
 - **Presence tracking** — device tracker entities per avatar (`home` / `not_home` / `unavailable`)
 - **Avatar state** — AFK, busy flags, current region and parcel pushed on change (not on a fixed schedule)
 - **World data sensors** — region FPS, time dilation, agent counts — graphable history in HA
+- **Parcel visitor tracking** — see who is on your parcel in real time, including non-registered visitors; arrival/departure events for automations
 - **In-world IMs** — send messages to registered avatars from any HA automation
 - **HA script menu** — touch the HUD in-world to run labelled HA scripts (lights, scenes, etc.)
 - **Hover text control** — push live status lines to in-world objects from HA automations
 - **Region announcements** — broadcast messages to local or region-wide chat from HA automations
 - **Inworld trigger relay** — in-world scripted objects (doorbell, vendor, NPC) fire HA events that automations can act on
+- **Plugin system** — drop extra scripts into the Hub object to extend it without touching the main script
 
 ---
 
@@ -31,13 +33,15 @@ Connects your Second Life avatar to Home Assistant. Track who is online, monitor
 
 Copy the `custom_components/mmo_bridge/` folder into your HA `config/custom_components/` directory, then restart Home Assistant.
 
-### 2 — Add to `configuration.yaml`
+### 2 — Add the integration
 
-```yaml
-mmo_bridge:
-```
+Go to **Settings → Integrations → Add Integration** and search for **MMO Bridge**. Click Submit — no configuration fields are needed.
 
-After restarting, a persistent notification will appear with your webhook URL and token. Keep both handy for the in-world setup steps.
+### 3 — Get your webhook URL
+
+Click **Configure** on the MMO Bridge integration card. Copy the URL shown — you'll need it for the in-world setup steps below.
+
+> **Upgrading from an earlier version?** If you have `mmo_bridge:` or `notify: - platform: mmo_bridge` in `configuration.yaml`, do one restart with those lines still present (to auto-create the config entry), then you can remove them.
 
 ---
 
@@ -101,10 +105,12 @@ The object registers with HA and shows a colour-coded hover text:
 | `/5 seturl <url>` | Save HA webhook URL and re-register |
 | `/5 setpoll <sec>` | Presence poll interval (min 10s, default 60s) |
 | `/5 status` | HA URL, script URL, registered avatars |
-| `/5 list` | List all registered avatars with keys |
+| `/5 list` | List all registered avatars (shows `[no broadcast]` flag) |
 | `/5 remove <name>` | Remove an avatar by display name |
 | `/5 clearusers` | Remove all registered avatars |
 | `/5 push` | Force an immediate presence push |
+| `/5 nobroadcast <name>` | Track presence but exclude from broadcast IMs |
+| `/5 broadcast <name>` | Re-enable broadcast IMs for an excluded avatar |
 | `/5 settrigchan` | Enable trigger relay / rotate to a new random channel |
 | `/5 settrigchan <n>` | Set trigger relay to a specific negative channel |
 | `/5 hardreset` | Clear all stored data and reset (use when moving to new HA) |
@@ -134,6 +140,31 @@ Pushes region FPS, time dilation, agent counts, and sim info to HA as graphable 
 | `/4 settrigchan <n>` | Set trigger relay to a specific negative channel |
 | `/4 hardreset` | Clear all stored data and reset |
 | `/4 help` | Show available commands |
+
+---
+
+### Parcel visitor monitor — who's on your land (optional plugin)
+
+**Script:** `sl_parcel_monitor.lsl`
+
+Tracks every avatar currently on your parcel — including visitors who have never registered with your Hub — and reports the list to HA every 15 seconds.
+
+**Setup:** drop `sl_parcel_monitor.lsl` into the **Hub object** alongside `sl_notify_controller.lsl`. It automatically shares the Hub's webhook URL, auth token, and node ID via the plugin system — no extra configuration needed.
+
+When the plugin is running, the existing `sensor..._parcel_agents` sensor gains an `agents` attribute listing everyone currently on the parcel by name:
+
+```yaml
+# In a template or automation condition:
+{{ state_attr('sensor.mmo_bridge_secondlife_xev_getaway_parcel_agents', 'agents') }}
+# → ["Aki Resident", "Friend Resident", "Visitor Name"]
+```
+
+**Events fired:**
+
+| Event | Payload | When |
+|---|---|---|
+| `mmo_bridge_parcel_arrived` | `{world, node_id, key, name}` | Avatar steps onto the parcel |
+| `mmo_bridge_parcel_left` | `{world, node_id, key, name}` | Avatar leaves the parcel |
 
 ---
 
@@ -210,17 +241,17 @@ One per registered avatar: `device_tracker.mmo_bridge_secondlife_<avatar_slug>`
 
 ### Sensors
 
-Created automatically when the Stats Node first registers:
+Created automatically when the Hub or Stats Node first registers:
 
 | Entity | Description |
 |---|---|
 | `sensor.mmo_bridge_secondlife_online` | Online avatar count |
 | `sensor.mmo_bridge_secondlife_<node>_region_fps` | Region frame rate |
 | `sensor.mmo_bridge_secondlife_<node>_time_dilation` | Time dilation 0.0–1.0 |
-| `sensor.mmo_bridge_secondlife_<node>_parcel_agents` | Avatars on your parcel |
+| `sensor.mmo_bridge_secondlife_<node>_parcel_agents` | Avatars on your parcel (count; `agents` attribute added when parcel monitor plugin is running) |
 | `sensor.mmo_bridge_secondlife_<node>_region_agents` | Avatars in the region |
 
-`<node>` is the slugified parcel name where the Stats Node is rezzed (e.g. `xev_getaway`).
+`<node>` is the slugified parcel name (e.g. `xev_getaway`).
 
 ---
 
@@ -296,10 +327,6 @@ data:
   node_id: "xev_getaway"
 ```
 
-### `mmo_bridge.reload`
-
-Reload sensor and notify platforms without restarting HA. Useful during development. Changes to `__init__.py` still require a full restart.
-
 ---
 
 ## Events
@@ -312,6 +339,9 @@ Reload sensor and notify platforms without restarting HA. Useful during developm
 | `mmo_bridge_avatar_busy_changed` | `{world, avatar, busy}` | Busy state toggles (HUD required) |
 | `mmo_bridge_region_restart` | `{world, world_data}` | Sim restarts |
 | `mmo_bridge_inworld_trigger` | `{world, node_id, owner, trigger, ...}` | In-world trigger object fired (see below) |
+| `mmo_bridge_parcel_arrived` | `{world, node_id, key, name}` | Avatar arrives on the parcel (plugin required) |
+| `mmo_bridge_parcel_left` | `{world, node_id, key, name}` | Avatar leaves the parcel (plugin required) |
+| `mmo_bridge_plugin_data` | `{world, node_id, type, ...}` | Custom plugin sent an unrecognised payload type (see Plugin system) |
 
 ---
 
@@ -509,6 +539,72 @@ automation:
       target:
         area: office
 ```
+
+### Notify when a specific visitor arrives on the parcel
+
+Requires the parcel monitor plugin — see [Parcel visitor monitor](#parcel-visitor-monitor--whos-on-your-land-optional-plugin).
+
+```yaml
+automation:
+  alias: "SL — Friend arrived"
+  trigger:
+    - platform: event
+      event_type: mmo_bridge_parcel_arrived
+      event_data:
+        name: "Friend Resident"
+  action:
+    - service: notify.telegram
+      data:
+        message: "{{ trigger.event.data.name }} just arrived at your parcel!"
+```
+
+---
+
+## Plugin system
+
+The Hub exposes a lightweight message bus so optional scripts can extend its behaviour without any knowledge of the webhook URL, auth token, or node ID.
+
+### How it works
+
+Any script in the same object as the Hub can send a payload to HA by calling:
+
+```lsl
+integer MMO_PLUGIN_MSG = 0x4D4D4F;  // must match the Hub constant
+
+llMessageLinked(LINK_SET, MMO_PLUGIN_MSG, json_payload, "");
+```
+
+The Hub's `link_message` handler injects `world`, `node_id`, and `protocol` then fires the HTTP request to HA. The plugin script needs no credentials.
+
+### Well-known plugin payload types
+
+| `type` field | HA handling |
+|---|---|
+| `parcel_agents` | Updates `parcel_agents` sensor attribute + fires arrival/departure events |
+
+### Custom payload types
+
+Any `type` value not listed above fires a generic `mmo_bridge_plugin_data` event in HA with all payload fields forwarded:
+
+```yaml
+trigger:
+  - platform: event
+    event_type: mmo_bridge_plugin_data
+    event_data:
+      type: my_sensor_data
+action:
+  - service: notify.telegram
+    data:
+      message: "Custom data: {{ trigger.event.data }}"
+```
+
+No HA code changes needed — just send the payload from LSL and react to the event in automations.
+
+### Included plugins
+
+| Script | What it does |
+|---|---|
+| `sl_parcel_monitor.lsl` | Tracks all avatars on the parcel, including non-registered visitors |
 
 ---
 
