@@ -65,6 +65,8 @@ integer region_restarted     = FALSE;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// NOTE: computeNodeId() is duplicated verbatim in sl_stats_node.lsl.
+// If you change this function, update that file too.
 string computeNodeId() {
     vector pos    = llGetPos();
     list   parcel = llGetParcelDetails(pos, [PARCEL_DETAILS_NAME]);
@@ -276,6 +278,9 @@ startTrigListener() {
 }
 
 handleTriggerRelay(key sender_id, string payload) {
+    // Guard: no point forwarding if HA URL isn't configured yet
+    if (ha_url == "") return;
+
     // 1. Validate JSON — trigger field must be present and non-empty
     string trigger_val = llJsonGetValue(payload, ["trigger"]);
     if (trigger_val == JSON_INVALID || trigger_val == "") return;

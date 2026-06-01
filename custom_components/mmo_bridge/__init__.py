@@ -40,6 +40,11 @@ MMO_LABEL_PREFIX = "MMO - "
 
 _LOGGER = logging.getLogger(__name__)
 
+# Payload types with dedicated handlers — anything else fires mmo_bridge_plugin_data
+_KNOWN_PAYLOAD_TYPES = frozenset({
+    "hud_list_scripts", "hud_command", "inworld_trigger", "parcel_agents",
+})
+
 
 async def async_setup(hass, config):
     """YAML shim — triggers the import flow when mmo_bridge: is in configuration.yaml."""
@@ -77,12 +82,15 @@ async def async_setup_entry(hass, entry):
     stored = await store.async_load() or {}
 
     # Migrate v1 flat adapters → v2 nested nodes
+    _migrated = False
     if stored and stored.get("version", 1) == 1:
-        stored = _migrate_v1_to_v2(stored)
+        stored    = _migrate_v1_to_v2(stored)
+        _migrated = True
 
     token = stored.get("token")
     if not token:
-        token = secrets.token_urlsafe(24)
+        token     = secrets.token_urlsafe(24)
+        _migrated = True  # new token — persist immediately
     hass.data[DOMAIN]["token"] = token
 
     # Restore per-avatar HMAC secrets
@@ -95,9 +103,12 @@ async def async_setup_entry(hass, entry):
         hass.data[DOMAIN]["avatar_home"][world]     = {}
         _LOGGER.info("Restored %d node(s) for world '%s' from storage", len(nodes), world)
 
-    await store.async_save(_make_store_payload(
-        token, hass.data[DOMAIN]["nodes"], hass.data[DOMAIN]["avatar_hmac_secrets"]
-    ))
+    # Only persist if something actually changed (migration ran or new token issued).
+    # Avoids a redundant write on every normal restart.
+    if _migrated:
+        await store.async_save(_make_store_payload(
+            token, hass.data[DOMAIN]["nodes"], hass.data[DOMAIN]["avatar_hmac_secrets"]
+        ))
 
     # Ensure the global "MMO Script" label exists in HA
     _ensure_mmo_labels(hass)
@@ -204,11 +215,11 @@ async def async_setup_entry(hass, entry):
             trigger_name = data.get("trigger", "")
             if not trigger_name:
                 return web.Response(status=400, text="missing trigger field")
-            raw_nid = data.get("node_id", "")
             # Pass all fields through; ensure world and node_id are present
-            event_data          = dict(data)
+            # (node_id already computed at the top of the handler)
+            event_data            = dict(data)
             event_data["world"]   = world
-            event_data["node_id"] = slugify(raw_nid) if raw_nid else "default"
+            event_data["node_id"] = node_id
             hass.bus.async_fire(f"{DOMAIN}_inworld_trigger", event_data)
             _LOGGER.info(
                 "inworld_trigger: '%s' from '%s' in '%s'",
@@ -220,6 +231,9 @@ async def async_setup_entry(hass, entry):
         if payload_type == "parcel_agents":
             agents = data.get("agents", [])   # [{key, name}, ...]
 
+            # Drop any malformed entries missing the "key" field so they
+            # never reach the set arithmetic or event firing below.
+            agents    = [a for a in agents if a.get("key")]
             hass.data[DOMAIN]["parcel_agents"].setdefault(world, {})
             prev      = hass.data[DOMAIN]["parcel_agents"][world].get(node_id, [])
             prev_keys = {a["key"] for a in prev}
@@ -263,10 +277,7 @@ async def async_setup_entry(hass, entry):
         # Any named payload type not explicitly handled above fires a generic
         # mmo_bridge_plugin_data event. Custom LSL plugins can use this without
         # needing a dedicated HA handler — just react to the event in automations.
-        _KNOWN_TYPES = {
-            "hud_list_scripts", "hud_command", "inworld_trigger", "parcel_agents",
-        }
-        if payload_type and payload_type not in _KNOWN_TYPES:
+        if payload_type and payload_type not in _KNOWN_PAYLOAD_TYPES:
             event_data            = dict(data)
             event_data["world"]   = world
             event_data["node_id"] = node_id
@@ -601,6 +612,10 @@ async def async_unload_entry(hass, entry):
     async_unregister(hass, "mmo_bridge")
     for svc in ("request_update", "send_message", "set_object_text", "region_say"):
         hass.services.async_remove(DOMAIN, svc)
+    # Clear runtime state so a subsequent async_setup_entry starts clean.
+    # Without this, stale sensor_entities survive a reload and end up with no
+    # update listeners — the entities appear in HA but never update.
+    hass.data.pop(DOMAIN, None)
     return True
 
 
