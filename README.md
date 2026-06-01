@@ -610,6 +610,9 @@ No HA code changes needed — just send the payload from LSL and react to the ev
 
 ## Example Lovelace card
 
+`state_display` remaps the raw device tracker states to friendlier labels.
+`unavailable` → **Offline**, `home` → **At Home**, `not_home` → **Away**.
+
 ```yaml
 type: entities
 title: Second Life
@@ -618,6 +621,12 @@ entities:
     name: Online
   - entity: device_tracker.mmo_bridge_secondlife_xevian_wake
     name: Xevian Wake
+    state_display: >-
+      {% set s = states(config.entity) %}
+      {% if s == 'home' %}At Home
+      {% elif s == 'not_home' %}Away
+      {% elif s == 'unavailable' %}Offline
+      {% else %}{{ s | title }}{% endif %}
   - entity: sensor.mmo_bridge_secondlife_xev_getaway_region_fps
     name: Region FPS
   - entity: sensor.mmo_bridge_secondlife_xev_getaway_time_dilation
@@ -637,6 +646,12 @@ entities:
     name: Online
   - entity: device_tracker.mmo_bridge_secondlife_xevian_wake
     name: Xevian
+    state_display: >-
+      {% set s = states(config.entity) %}
+      {% if s == 'home' %}At Home
+      {% elif s == 'not_home' %}Away
+      {% elif s == 'unavailable' %}Offline
+      {% else %}{{ s | title }}{% endif %}
   - entity: sensor.mmo_bridge_secondlife_xev_getaway_region_fps
     name: FPS
   - entity: sensor.mmo_bridge_secondlife_xev_getaway_time_dilation
