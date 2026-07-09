@@ -289,8 +289,13 @@ async def async_setup_entry(hass, entry):
         # ── Standard node/presence/state processing ───────────────────────────
 
         # ── Node registration / URL update ────────────────────────────────────
-        if "adapter_url" in data or "lsl_url" in data:
-            url          = data.get("adapter_url") or data.get("lsl_url")
+        # Only treat as a registration if the URL is non-empty. LSL scripts can
+        # push a payload before their llRequestURL grant (e.g. an owner "push"
+        # command), sending "adapter_url": "" — that must not wipe the node's
+        # stored URL, or every command to the node silently fails until the
+        # next re-registration.
+        url = data.get("adapter_url") or data.get("lsl_url")
+        if url:
             capabilities = data.get("capabilities") or []
             if isinstance(capabilities, str):
                 capabilities = [capabilities]

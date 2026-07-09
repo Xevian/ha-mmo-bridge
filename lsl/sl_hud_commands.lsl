@@ -183,8 +183,12 @@ default {
                 string entry = llList2String(raw, i);
                 string sid   = llJsonGetValue(entry, ["id"]);
                 string sname = llJsonGetValue(entry, ["name"]);
-                if (sid != JSON_INVALID && sid != "")
+                if (sid != JSON_INVALID && sid != "") {
+                    // Fall back to the id if the name is missing/invalid so the
+                    // menu never shows a literal "JSON_INVALID" button
+                    if (sname == JSON_INVALID || sname == "") sname = sid;
                     cached_scripts += [sid, sname];
+                }
             }
             if (llGetListLength(cached_scripts) == 0) {
                 llOwnerSay("MMO HUD: no scripts available. In HA, label a script 'MMO Script' to add it here.");

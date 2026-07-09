@@ -2,6 +2,7 @@
 from homeassistant.components.notify import BaseNotificationService
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import aiohttp
+import asyncio
 import logging
 
 from . import DOMAIN
@@ -61,8 +62,7 @@ class SLNotificationService(BaseNotificationService):
                 # avatars registered with different Hubs all receive the message.
                 # Each LSL Hub delivers only to its own registered list, so there
                 # are no duplicates unless an avatar is registered with two Hubs.
-                for nid, node in msg_nodes.items():
-                    await _send(session, node["url"], "all", message, world)
+                to_name = "all"
             else:
                 # Targeted: try every node — the LSL script returns 404 if the
                 # avatar is not in that node's registered list, so the message
@@ -73,8 +73,14 @@ class SLNotificationService(BaseNotificationService):
                         "LSL will reject if not registered)",
                         name, world,
                     )
-                for nid, node in msg_nodes.items():
-                    await _send(session, node["url"], name, message, world)
+                to_name = name
+
+            # Send to all nodes in parallel — one slow/dead node no longer
+            # delays delivery to the rest by its full 5s timeout.
+            await asyncio.gather(*(
+                _send(session, node["url"], to_name, message, world)
+                for node in msg_nodes.values()
+            ))
 
 
 def _ascii_safe(text: str) -> str:
